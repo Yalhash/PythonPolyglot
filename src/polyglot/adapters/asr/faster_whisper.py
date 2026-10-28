@@ -20,13 +20,15 @@ class FasterWhisperTranscriber:
         model: str = "base",
         *,
         device: str = "auto",
-        compute_type: str = "default",
+        compute_type: str = "auto",
         beam_size: int = 5,
         download_root: str | None = None,
     ) -> None:
         self.model_name, self.device, self.compute_type = model, device, compute_type
         self.beam_size, self.download_root = beam_size, download_root
         self._model: Any = None
+        self.effective_device: str | None = None  # what CTranslate2 chose, after load()
+        self.effective_compute_type: str | None = None
 
     def load(self) -> None:
         if self._model is not None:
@@ -47,6 +49,15 @@ class FasterWhisperTranscriber:
             raise TranscriptionFailed(
                 f"could not load Whisper model {self.model_name!r}: {exc}"
             ) from exc
+        inner = getattr(self._model, "model", None)  # the CTranslate2 model
+        self.effective_device = str(getattr(inner, "device", self.device))
+        self.effective_compute_type = str(getattr(inner, "compute_type", self.compute_type))
+        log.info(
+            "Whisper %s loaded on %s as %s",
+            self.model_name,
+            self.effective_device,
+            self.effective_compute_type,
+        )
 
     def transcribe(self, audio: RawAudio, language: str | None) -> Transcript:
         if self._model is None:

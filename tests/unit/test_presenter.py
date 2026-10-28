@@ -169,3 +169,14 @@ def test_clear_waits_for_core_and_ignores_late_events_for_cleared_rows() -> None
     assert view.rows == {} and view.suggestion == SuggestionVM(visible=False)
     p.handle(u(3, UtteranceStatus.LISTENING))  # new conversation
     assert list(view.rows) == [3]
+
+
+def test_detach_stops_all_view_updates() -> None:
+    """Shutdown detaches the presenter first, so a late signal (e.g. the shield status
+    recomputed while windows are destroyed) cannot reach deleted widgets."""
+    p, view, _ = make()
+    p.detach()
+    p.on_shield_status(ShieldStatus.HIDDEN)
+    p.handle(u(1, UtteranceStatus.FINAL, "hola"))
+    p.handle(LanguageChanged("es", locked=True))
+    assert view.calls == [] and view.rows == {}

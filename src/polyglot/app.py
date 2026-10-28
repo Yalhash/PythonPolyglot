@@ -187,8 +187,12 @@ def run_gui(config_path: Path | None, *, demo: bool = False) -> int:
         hotkeys.stop()
         controller.shutdown()
         bridge.close()
+        # Before any widget is deleted: destroying windows makes the shield filter
+        # recompute its status, which must not reach the (deleted) view.
         if shield_filter is not None:
             app.removeEventFilter(shield_filter)
+            shield_filter.close()
+        presenter.detach()
         if tray is not None:
             tray.hide()
             tray.setContextMenu(None)

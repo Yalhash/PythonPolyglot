@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import sys
 import threading
 import types
@@ -308,3 +309,27 @@ def test_speech_like_pads_to_whole_frames() -> None:
     audio = speech_like([("tone", 0.1), ("silence", 0.05)])
     assert audio.size % FRAME_SAMPLES == 0
     assert audio.size >= int(0.15 * SAMPLE_RATE)
+
+
+def test_whisper_adapter_uses_auto_compute_type_and_reports_the_choice(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Runs without faster-whisper: a stand-in module records how the model is built."""
+    from polyglot.adapters.asr.faster_whisper import FasterWhisperTranscriber
+
+    built: dict[str, Any] = {}
+
+    class FakeWhisperModel:
+        def __init__(self, name: str, **kwargs: Any) -> None:
+            built.update(kwargs, name=name)
+            self.model = types.SimpleNamespace(device="cpu", compute_type="int8")
+
+    monkeypatch.setitem(
+        sys.modules, "faster_whisper", types.SimpleNamespace(WhisperModel=FakeWhisperModel)
+    )
+    t = FasterWhisperTranscriber("base")
+    with caplog.at_level(logging.INFO, logger="polyglot.adapters.asr.faster_whisper"):
+        t.load()
+    assert built["compute_type"] == "auto" and built["name"] == "base"
+    assert (t.effective_device, t.effective_compute_type) == ("cpu", "int8")
+    assert "loaded on cpu as int8" in caplog.text

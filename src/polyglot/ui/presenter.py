@@ -91,6 +91,35 @@ class ViewPort(Protocol):
     def set_capture(self, vm: CaptureVM) -> None: ...
 
 
+class NullView:
+    """A view that ignores every call. Swapped in by ``Presenter.detach()`` so that a
+    signal arriving during shutdown cannot touch deleted widgets."""
+
+    def upsert_row(self, row: RowVM) -> None:
+        pass
+
+    def remove_row(self, utterance_id: int) -> None:
+        pass
+
+    def clear_rows(self) -> None:
+        pass
+
+    def show_suggestions(self, vm: SuggestionVM) -> None:
+        pass
+
+    def set_status(self, vm: StatusVM) -> None:
+        pass
+
+    def set_listening(self, listening: bool, busy: bool) -> None:
+        pass
+
+    def set_language(self, text: str) -> None:
+        pass
+
+    def set_capture(self, vm: CaptureVM) -> None:
+        pass
+
+
 class Commands(Protocol):
     def toggle(self) -> None: ...
     def request_suggestion(self) -> None: ...
@@ -286,6 +315,10 @@ class Presenter:
 
     def on_unlock_language(self) -> None:
         self.commands.set_language(None)
+
+    def detach(self) -> None:
+        """Stop updating the view (shutdown). Later events and calls become no-ops."""
+        self.view = NullView()
 
     def on_shield_status(self, status: ShieldStatus | None) -> None:
         self.view.set_capture(self.capture_vm(status))

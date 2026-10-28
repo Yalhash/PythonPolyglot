@@ -148,6 +148,15 @@ class SettingsDialog(QDialog):
         self.asr_device = _combo(
             [("Automatic", "auto"), ("CPU", "cpu"), ("NVIDIA GPU (CUDA)", "cuda")], s.device
         )
+        self.compute_type = _combo(
+            [
+                ("Automatic (fastest supported)", "auto"),
+                ("int8 (fast on CPU)", "int8"),
+                ("float16 (GPU)", "float16"),
+                ("float32 (most precise, slowest)", "float32"),
+            ],
+            s.compute_type,
+        )
         self.source_lang = _combo(_language_items(with_auto=True), s.language)
         self.vad_engine = _combo(
             [("Silero (recommended)", "silero"), ("Energy (simple)", "energy")], v.engine
@@ -157,6 +166,7 @@ class SettingsDialog(QDialog):
         self.partials.setChecked(v.partial_interval_ms > 0)
         form.addRow("Whisper model", self.model)
         form.addRow("Run on", self.asr_device)
+        form.addRow("Precision", self.compute_type)
         form.addRow("Their language", self.source_lang)
         form.addRow("Speech detector", self.vad_engine)
         form.addRow("End of sentence after", self.end_silence)
@@ -239,6 +249,7 @@ class SettingsDialog(QDialog):
         c["audio"].update(source=self.source.currentData(), device=self.device.currentData(),
                           file=self.file.text().strip() or None)  # fmt: skip
         c["asr"].update(model=self.model.currentData(), device=self.asr_device.currentData(),
+                        compute_type=self.compute_type.currentData(),
                         language=self.source_lang.currentData())  # fmt: skip
         c["vad"].update(
             engine=self.vad_engine.currentData(),

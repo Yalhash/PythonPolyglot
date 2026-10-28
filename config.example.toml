@@ -19,7 +19,7 @@ partial_interval_ms = 0
 [asr]
 model = "base"
 device = "auto"
-compute_type = "default"
+compute_type = "auto"  # auto | int8 | float16 | float32 | ... (auto: int8 on CPU, float16 on GPU)
 beam_size = 5
 lock_after = 2
 lock_min_probability = 0.8

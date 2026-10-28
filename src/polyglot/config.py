@@ -73,12 +73,24 @@ class VadConfig(_Section):
 class AsrConfig(_Section):
     model: str = "base"
     device: Literal["auto", "cpu", "cuda"] = "auto"
-    compute_type: str = "default"
+    #: auto = the fastest type the device supports (int8 on CPU, float16 on CUDA).
+    #: "default" would keep the model's saved float16, which CPUs convert to slow float32.
+    compute_type: Literal[
+        "auto", "int8", "int8_float16", "int8_float32", "int8_bfloat16",
+        "int16", "float16", "bfloat16", "float32",
+    ] = "auto"
     beam_size: int = Field(5, ge=1, le=10)
     language: str | None = None  # force a source language; None = auto-detect then lock
     lock_after: int = Field(2, ge=1, le=10)
     lock_min_probability: float = Field(0.8, ge=0.0, le=1.0)
     queue_size: int = Field(8, ge=1, le=64)
+
+    @field_validator("compute_type", mode="before")
+    @classmethod
+    def _legacy_default(cls, value: object) -> object:
+        # Older versions saved "default" without the user choosing it; it caused a
+        # float16 -> float32 conversion (and a CTranslate2 warning) on CPUs.
+        return "auto" if value == "default" else value
 
 
 class TranslationConfig(_Section):

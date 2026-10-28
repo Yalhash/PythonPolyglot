@@ -182,3 +182,16 @@ def test_secret_source() -> None:
     assert s.source(Secrets.OPENAI) == "OPENAI_API_KEY"
     assert s.source(Secrets.GOOGLE) == "keychain"
     assert Secrets(MemorySecretStore(), environ={}).source(Secrets.OPENAI) is None
+
+
+def test_whisper_compute_type_defaults_to_auto(tmp_path: Path) -> None:
+    # "default" kept the model's saved float16, which CPUs convert to slow float32.
+    assert AppConfig().asr.compute_type == "auto"
+    path = tmp_path / "config.toml"
+    path.write_text('[asr]\ncompute_type = "default"\n', encoding="utf-8")
+    assert load_config(path, environ={}).asr.compute_type == "auto"  # legacy value migrated
+    path.write_text('[asr]\ncompute_type = "int8"\n', encoding="utf-8")
+    assert load_config(path, environ={}).asr.compute_type == "int8"
+    path.write_text('[asr]\ncompute_type = "float64"\n', encoding="utf-8")
+    with pytest.raises(ConfigError):
+        load_config(path, environ={})

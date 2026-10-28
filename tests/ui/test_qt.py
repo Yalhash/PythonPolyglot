@@ -16,7 +16,7 @@ import pytest
 pytest.importorskip("PyQt6")
 pytest.importorskip("pytestqt")
 
-from PyQt6.QtCore import QThread, QTimer
+from PyQt6.QtCore import QEvent, QThread, QTimer
 from PyQt6.QtWidgets import QApplication, QDialog, QWidget
 
 from polyglot.adapters.fakes import NoopShield
@@ -161,6 +161,97 @@ def test_shield_filter_covers_every_top_level_window(qtbot: Any) -> None:
         app.removeEventFilter(filt)
 
 
+def test_shield_filter_never_creates_a_native_handle(qtbot: Any) -> None:
+    """Regression: the filter called winId(), which creates a native window when there is
+    none and returned None for windows mid-creation/teardown (TypeError on every click)."""
+    from PyQt6.QtCore import Qt
+
+    from polyglot.ui.qt.shield_filter import CaptureShieldFilter, native_handle
+
+    shield = NoopShield(ShieldStatus.HIDDEN)
+    filt = CaptureShieldFilter(shield)
+    w = QWidget()  # a top-level that was never shown has no native window
+    qtbot.addWidget(w)
+    assert native_handle(w) is None
+    assert filt.shield_widget(w) is None
+    assert shield.calls == []
+    assert not w.testAttribute(Qt.WidgetAttribute.WA_WState_Created)  # still not created
+    w.show()
+    qtbot.waitExposed(w)
+    assert filt.shield_widget(w) is ShieldStatus.HIDDEN
+    assert shield.calls == [native_handle(w)]
+
+
+def test_clicking_overlay_buttons_raises_nothing_and_adds_no_native_children(
+    qtbot: Any, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Regression for the per-click shield error and the stray native 'TitleBarWindow'
+    (on Windows CI this runs with real native windows)."""
+    import logging
+
+    from PyQt6.QtCore import QPoint, Qt
+    from PyQt6.QtWidgets import QPushButton, QToolTip
+
+    from polyglot.ui.qt.overlay import OverlayWindow
+    from polyglot.ui.qt.shield_filter import CaptureShieldFilter
+
+    shield = NoopShield(ShieldStatus.HIDDEN)
+    filt = CaptureShieldFilter(shield)
+    app = QApplication.instance()
+    assert app is not None
+    app.installEventFilter(filt)
+    try:
+        w = OverlayWindow(UiConfig())
+        qtbot.addWidget(w)
+        w.show()
+        qtbot.waitExposed(w)
+        with caplog.at_level(logging.DEBUG, logger="polyglot.ui.qt.shield_filter"):
+            for button in w.findChildren(QPushButton):
+                if not w.isVisible():
+                    w.show()
+                    qtbot.waitExposed(w)
+                if button.isVisible():
+                    QToolTip.showText(button.mapToGlobal(QPoint(2, 2)), button.toolTip(), button)
+                    qtbot.mouseClick(button, Qt.MouseButton.LeftButton)
+                    QToolTip.hideText()
+            qtbot.wait(100)
+        problems = [r for r in caplog.records if r.levelno >= logging.WARNING]
+        assert problems == [], [r.getMessage() for r in problems]
+        native = [
+            c.objectName() or type(c).__name__
+            for c in w.findChildren(QWidget)
+            if c.testAttribute(Qt.WidgetAttribute.WA_NativeWindow)
+        ]
+        assert native == []
+    finally:
+        app.removeEventFilter(filt)
+        filt.close()
+
+
+def test_closed_shield_filter_is_silent_while_windows_are_destroyed(qtbot: Any) -> None:
+    """Regression: on shutdown, destroying windows made the filter emit a new status into
+    a view whose labels were already deleted."""
+    from PyQt6 import sip
+
+    from polyglot.ui.qt.shield_filter import CaptureShieldFilter
+
+    filt = CaptureShieldFilter(NoopShield(ShieldStatus.HIDDEN))
+    w = QWidget()
+    w.show()
+    qtbot.waitExposed(w)
+    assert filt.shield_widget(w) is ShieldStatus.HIDDEN
+    got: list[Any] = []
+    filt.status_changed.connect(got.append)
+    filt.close()
+    sip.delete(w)  # destroyed now, synchronously
+    assert got == []
+    other = QWidget()
+    qtbot.addWidget(other)
+    other.show()
+    qtbot.waitExposed(other)
+    assert filt.shield_widget(other) is None  # closed for good
+
+
 @pytest.mark.skipif(sys.platform != "win32", reason="real SetWindowDisplayAffinity is Windows-only")
 def test_real_windows_shield_hides_a_window(qtbot: Any) -> None:
     from polyglot.platform.windows import WindowsShield
@@ -216,8 +307,15 @@ def test_settings_dialog_survives_device_listing_error(qtbot: Any) -> None:
     assert dlg.result_config == AppConfig()
 
 
-def test_app_smoke_demo_mode(qtbot: Any, tmp_path: Path) -> None:
-    """Start the real GUI in demo mode, let it run briefly, quit cleanly."""
+def test_app_smoke_demo_mode(
+    qtbot: Any, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Start the real GUI in demo mode, let it run briefly, quit cleanly.
+
+    Also the regression test for shutdown order: with the capture shield on (the
+    default), deleting the window used to push a status into its deleted labels."""
+    import logging
+
     from polyglot.app import run_gui
 
     cfg = AppConfig()
@@ -228,4 +326,10 @@ def test_app_smoke_demo_mode(qtbot: Any, tmp_path: Path) -> None:
     app = QApplication.instance()
     assert app is not None
     QTimer.singleShot(2500, app.quit)
-    assert run_gui(path, demo=True) == 0
+    with caplog.at_level(logging.WARNING):
+        assert run_gui(path, demo=True) == 0
+        # Run the deferred deletes queued by shutdown (event loop has already exited).
+        QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete.value)
+        QApplication.processEvents()
+    unhandled = [r.getMessage() for r in caplog.records if r.levelno >= logging.CRITICAL]
+    assert unhandled == []
