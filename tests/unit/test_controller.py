@@ -170,7 +170,13 @@ def test_save_failure_is_reported_not_raised() -> None:
     def broken_save(_cfg: AppConfig) -> None:
         raise ConfigError("config file could not be loaded")
 
-    c = AppController(AppConfig(), Secrets(MemorySecretStore(), environ={}), bus, builder=FakeBuilder(), save=broken_save)
+    c = AppController(
+        AppConfig(),
+        Secrets(MemorySecretStore(), environ={}),
+        bus,
+        builder=FakeBuilder(),
+        save=broken_save,
+    )
     new = c.config.model_copy(deep=True)
     new.ui.opacity = 0.5
     assert c.apply_config(new) == {"ui"}

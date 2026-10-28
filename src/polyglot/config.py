@@ -45,6 +45,7 @@ class AudioConfig(_Section):
     @classmethod
     def _device_as_text(cls, value: object) -> object:
         return str(value) if isinstance(value, int) and not isinstance(value, bool) else value
+
     file: str | None = None  # WAV path, for source = "file"
     ring_seconds: float = Field(30.0, ge=1.0, le=600.0)
     gap_fill: bool = True
@@ -232,7 +233,9 @@ class ConfigStore:
                 if data[section][field] == self._env_effective.get(section, {}).get(field):
                     data[section][field] = self._file.get(section, {}).get(field)  # file layer
         _write_atomic(self.path, dict_to_toml(data))
-        self._file = {s: {k: v for k, v in vals.items() if v is not None} for s, vals in data.items()}
+        self._file = {
+            s: {k: v for k, v in vals.items() if v is not None} for s, vals in data.items()
+        }
         return self.path
 
 

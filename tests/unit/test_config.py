@@ -122,7 +122,9 @@ def test_store_keeps_env_overrides_out_of_the_file(tmp_path: Path) -> None:
 
     path = tmp_path / "config.toml"
     path.write_text('[asr]\nmodel = "small"\n', encoding="utf-8")
-    store = ConfigStore(path, environ={"POLYGLOT_TRANSLATION__ENABLED": "true", "POLYGLOT_ASR__MODEL": "tiny"})
+    store = ConfigStore(
+        path, environ={"POLYGLOT_TRANSLATION__ENABLED": "true", "POLYGLOT_ASR__MODEL": "tiny"}
+    )
     cfg = store.load()
     assert cfg.translation.enabled and cfg.asr.model == "tiny"
     cfg.ui.opacity = 0.5  # a real change from the settings dialog
@@ -161,7 +163,10 @@ def test_numeric_device_and_text_env_values(tmp_path: Path) -> None:
     path = tmp_path / "config.toml"
     path.write_text("[audio]\ndevice = 3\n", encoding="utf-8")
     assert load_config(path, environ={}).audio.device == "3"
-    cfg = load_config(tmp_path / "none.toml", environ={"POLYGLOT_AUDIO__DEVICE": "3", "POLYGLOT_UI__OPACITY": "0.5"})
+    cfg = load_config(
+        tmp_path / "none.toml",
+        environ={"POLYGLOT_AUDIO__DEVICE": "3", "POLYGLOT_UI__OPACITY": "0.5"},
+    )
     assert cfg.audio.device == "3" and cfg.ui.opacity == 0.5
 
 

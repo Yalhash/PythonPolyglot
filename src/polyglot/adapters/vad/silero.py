@@ -39,7 +39,10 @@ def bundled_model_candidates() -> list[Path]:
     # Prefer the known single-model files; anything else (e.g. split encoder/decoder
     # models) is tried last and must pass a test inference.
     preferred = ("silero_vad_v6.onnx", "silero_vad.onnx", "silero_vad_v5.onnx")
-    return sorted(found, key=lambda p: (preferred.index(p.name) if p.name in preferred else len(preferred), p.name))
+    return sorted(
+        found,
+        key=lambda p: (preferred.index(p.name) if p.name in preferred else len(preferred), p.name),
+    )
 
 
 def _concrete(shape: Any) -> tuple[int, ...]:

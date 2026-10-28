@@ -60,7 +60,12 @@ def chat(content: Any, **message: Any) -> HttpResponse:
         (401, "", AuthError, False),
         (403, "", AuthError, False),
         (403, '{"error":{"errors":[{"reason":"dailyLimitExceeded"}]}}', QuotaExceeded, False),
-        (403, '{"error":{"errors":[{"reason":"userRateLimitExceeded"}]}}', ProviderUnavailable, True),
+        (
+            403,
+            '{"error":{"errors":[{"reason":"userRateLimitExceeded"}]}}',
+            ProviderUnavailable,
+            True,
+        ),
         (429, '{"error":{"code":"insufficient_quota"}}', QuotaExceeded, False),
         (429, "slow down", ProviderUnavailable, True),
         (500, "", ProviderUnavailable, True),
