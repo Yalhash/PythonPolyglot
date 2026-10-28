@@ -1,104 +1,106 @@
-# Polyglot - Real-time Interview Translation Assistant
+# Polyglot
 
-A cross-platform desktop application that captures audio from video call services (Zoom, Microsoft Teams, Google Meet, etc.) and provides real-time transcription, translation, and AI-generated response suggestions.
+A small always-on-top window that listens to the other side of a call, transcribes it
+locally, translates it into your language, and suggests replies in theirs when you
+press a hotkey.
 
-## Features
+* **Local speech recognition** with [faster-whisper](https://github.com/SYSTRAN/faster-whisper).
+  Audio never leaves your machine.
+* **Sentence-aware**: voice-activity detection (Silero VAD) cuts audio at the speaker's
+  pauses, not every N seconds, so Whisper and the translator see whole sentences.
+* **Translation** (OpenAI or Google) and **reply suggestions** (OpenAI) are opt-in.
+  Only text is sent, and only once you enable them.
+* **Hidden from screen sharing on Windows 10 2004+**: the window stays visible to you
+  but is left out of captures. Not possible on macOS 15+ (see
+  [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#platform-layer)), so the window shows a
+  "visible in screen share" indicator there.
 
-- **Real-time Audio Capture**: Captures system audio from any call service
-- **Live Transcription**: Uses local Whisper model (free, no API costs!)
-- **Instant Translation**: Translates between multiple languages in real-time (requires API key)
-- **AI Response Suggestions**: Generates contextually appropriate responses in both languages (requires OpenAI API key)
-- **Transparent Overlay**: Non-intrusive floating window that stays on top
-- **Screen Share Invisible**: Window visible to you but invisible in screen shares
-- **Cross-platform**: Works on Windows and macOS
+> Status: v1 rewrite (`1.0.0.dev0`). The v0 prototype is tagged `v0.1.0`.
 
-## Installation
+## Quick start
 
-1. Clone this repository
-2. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-3. Copy `.env.example` to `.env` (optional - only needed for translation/response features):
-   ```bash
-   cp .env.example .env
-   ```
-4. (Optional) Edit `.env` and add API keys:
-   - **Transcription works locally for free!** No API key needed.
-   - Add `OPENAI_API_KEY` only if you want translation and response generation
-   - Or add `GOOGLE_TRANSLATE_API_KEY` for translation only
+Requires Python 3.10+ and [uv](https://docs.astral.sh/uv/).
 
-## Usage
-
-### List Available Audio Devices
-First, check what audio devices are available:
 ```bash
-python list_audio_devices.py
+uv sync                 # creates .venv and installs the exact locked versions
+uv run polyglot --demo  # try the UI with synthetic audio: no models, keys or network
+uv run polyglot         # the real thing
 ```
 
-### Run the Application
-Run the application from the project root:
-```bash
-python src/main.py
-```
+On first real run Whisper downloads its model (`base` is about 150 MB).
 
-Or run as a module:
-```bash
-python -m src.main
-```
+### Hotkeys (system-wide)
 
-The application will:
-- Start capturing system audio
-- Display a transparent overlay window
-- Show original text, translations, and response suggestions
-- Automatically hide when screen sharing is detected
+| Action | Default |
+| --- | --- |
+| Suggest replies to the last sentence | `Ctrl+Alt+S` |
+| Show / hide the window | `Ctrl+Alt+H` |
 
-## Audio Device Setup
+Inside the window: `Ctrl+Enter` suggests, `Esc` hides. Click a suggestion to copy it.
 
-**Important for Windows users**: Capturing system audio requires a loopback device or virtual audio cable.
+### Audio source
 
-### Option 1: Use Windows WASAPI Loopback (if available)
-Some Windows systems have built-in loopback devices. Run `python list_audio_devices.py` to see available devices.
+* **Windows**: captures system audio directly (WASAPI loopback). No virtual cable is needed.
+* **macOS**: install [BlackHole](https://github.com/ExistentialAudio/BlackHole), route
+  the call's output to it (a Multi-Output Device lets you still hear it), and pick it in
+  Settings → Audio.
 
-### Option 2: Install a Virtual Audio Device (Recommended)
-Install one of these free tools:
-- **VB-Audio Cable**: https://vb-audio.com/Cable/
-- **OBS Virtual Audio**: Comes with OBS Studio
-- **Voicemeeter**: https://vb-audio.com/Voicemeeter/
+`uv run polyglot --list-devices` lists input and loopback devices.
 
-After installation:
-1. Set your call application (Zoom, Teams, etc.) to output to the virtual device
-2. Run `python list_audio_devices.py` to find the device ID
-3. Set `AUDIO_DEVICE_ID=<device_id>` in your `.env` file
+### API keys
+
+Settings → Translation stores keys in the OS keychain (Windows Credential Manager or
+macOS Keychain), never in a file. For development, `POLYGLOT_OPENAI_API_KEY` /
+`OPENAI_API_KEY` and `POLYGLOT_GOOGLE_API_KEY` override the keychain.
+
+### Models
+
+Settings → Translation and Settings → Suggestions each have a model dropdown. It starts
+with a short built-in list and, once an OpenAI key is set, loads the chat models your key
+can actually use (Refresh reloads it). Any model ID can also be typed in. Defaults:
+`gpt-4o-mini` for translation and `gpt-4.1-mini` for suggestions. OpenAI retires both on
+2027-01-14 and names `gpt-6-luna` as the replacement.
+
+Older models get a `temperature`; reasoning models get the lowest `reasoning_effort`
+that fits the job instead (`none` for translation, `low` for suggestions). If a model
+rejects a parameter or value, the request is retried once without it, and that is
+remembered for the session.
 
 ## Configuration
 
-Edit the `.env` file to configure:
-- API keys (OpenAI required, Google Translate optional)
-- Source and target languages
-- Audio device selection (use `list_audio_devices.py` to find device IDs)
-- Window position and opacity
+Settings are saved to `config.toml` in your user config directory
+(`%LOCALAPPDATA%\polyglot` on Windows, `~/Library/Application Support/polyglot` on
+macOS). [`config.example.toml`](config.example.toml) lists every option with its
+default. Precedence, lowest to highest: defaults, then `config.toml`, then
+`POLYGLOT_<SECTION>__<FIELD>` environment variables (e.g. `POLYGLOT_ASR__MODEL=small`),
+then changes made in the settings dialog.
 
-## Requirements
+## Headless use
 
-- Python 3.8+
-- **No API key needed for transcription!** (runs locally)
-- OpenAI API key (optional - only for translation and response generation)
-- Windows 10+ or macOS 10.14+
+```bash
+uv run polyglot --file recording.wav --fast    # transcribe (and translate) a WAV file
+uv run polyglot --headless                     # listen live, print to the terminal
+```
 
-## Model Sizes
+## Development
 
-The local Whisper model can be configured in `.env`:
-- `tiny` - Fastest, least accurate (~39MB)
-- `base` - Good balance (default, ~74MB)
-- `small` - Better accuracy (~244MB)
-- `medium` - High accuracy (~769MB)
-- `large-v2` - Best accuracy (~1.5GB)
-- `large-v3` - Latest best accuracy (~1.5GB)
+```bash
+uv sync                          # dev tools included
+uv run pytest                    # fast suite: no models, devices or network
+uv run pytest -m slow            # real Whisper tiny + Silero (needs espeak-ng)
+uv run ruff check . && uv run ruff format .
+uv run mypy
+```
 
-First run will download the model automatically.
+Dependencies are declared in `pyproject.toml` and pinned in `uv.lock`. Add one with
+`uv add <package>` (or `uv add --dev` for tooling) and commit both files.
+
+CI (GitHub Actions) runs lint, type checks and tests on Windows, macOS and Linux with
+Python 3.10 and 3.12, plus a real-model job. On feature branches it also commits lockfile
+updates and ruff autofixes.
+
+Architecture, the pipeline and design decisions: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## License
 
 MIT
-
