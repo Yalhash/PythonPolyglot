@@ -105,7 +105,9 @@ class SileroVad:
 
     def reset(self) -> None:
         i = self._iface
-        self._state = {n: np.zeros(i.state_shapes[n], dtype=i.state_dtypes[n]) for n in i.state_names}
+        self._state = {
+            n: np.zeros(i.state_shapes[n], dtype=i.state_dtypes[n]) for n in i.state_names
+        }
         self._context = np.zeros((1, i.context), dtype=np.float32)
 
     def speech_prob(self, frame: RawAudio) -> float:
@@ -116,11 +118,13 @@ class SileroVad:
         if i.context:
             x = np.concatenate((self._context, x), axis=1)
             self._context = x[:, -i.context :]
-        feeds: dict[str, Any] = {"input": x if i.rank == 2 else x.reshape((1,) * (i.rank - 1) + (-1,))}
+        feeds: dict[str, Any] = {
+            "input": x if i.rank == 2 else x.reshape((1,) * (i.rank - 1) + (-1,))
+        }
         feeds.update(self._state)
         if i.has_sr:
             feeds["sr"] = self._sr
         out = self._sess.run(None, feeds)
-        for name, value in zip(i.state_names, out[1 : 1 + len(i.state_names)]):
+        for name, value in zip(i.state_names, out[1 : 1 + len(i.state_names)], strict=False):
             self._state[name] = value
         return float(np.asarray(out[0]).reshape(-1)[0])

@@ -113,8 +113,12 @@ class AppConfig(_Section):
     audio: AudioConfig = AudioConfig()  # pydantic copies model defaults per instance
     vad: VadConfig = VadConfig()  # pydantic copies model defaults per instance
     asr: AsrConfig = AsrConfig()  # pydantic copies model defaults per instance
-    translation: TranslationConfig = TranslationConfig()  # pydantic copies model defaults per instance
-    suggestions: SuggestionsConfig = SuggestionsConfig()  # pydantic copies model defaults per instance
+    translation: TranslationConfig = (
+        TranslationConfig()
+    )  # pydantic copies model defaults per instance
+    suggestions: SuggestionsConfig = (
+        SuggestionsConfig()
+    )  # pydantic copies model defaults per instance
     ui: UiConfig = UiConfig()  # pydantic copies model defaults per instance
     privacy: PrivacyConfig = PrivacyConfig()  # pydantic copies model defaults per instance
 
