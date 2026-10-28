@@ -6,7 +6,16 @@ from __future__ import annotations
 import bisect
 from importlib import resources
 
-from PyQt6.QtCore import QEvent, QObject, QPoint, Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import (
+    QEasingCurve,
+    QEvent,
+    QObject,
+    QPoint,
+    QPropertyAnimation,
+    Qt,
+    QTimer,
+    pyqtSignal,
+)
 from PyQt6.QtGui import QGuiApplication, QKeySequence, QMouseEvent, QShortcut
 from PyQt6.QtWidgets import (
     QFrame,
@@ -38,6 +47,12 @@ def _label(text: str = "", name: str = "", *, wrap: bool = True, selectable: boo
         lbl.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
     lbl.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
     return lbl
+
+
+#: While following, the view moves at most once per this many milliseconds, however often
+#: the live text of the newest sentence changes, and glides there instead of jumping.
+_SETTLE_MS = 250
+_GLIDE_MS = 220
 
 
 def _repolish(widget: QWidget) -> None:
@@ -224,6 +239,13 @@ class OverlayWindow(QWidget):
         root.addWidget(self.transcript, 3)
         bar = self.transcript.verticalScrollBar()
         if bar is not None:
+            self._glide = QPropertyAnimation(bar, b"value", self)
+            self._glide.setDuration(_GLIDE_MS)
+            self._glide.setEasingCurve(QEasingCurve.Type.OutCubic)
+            self._settle = QTimer(self)
+            self._settle.setSingleShot(True)
+            self._settle.setInterval(_SETTLE_MS)
+            self._settle.timeout.connect(self._glide_to_bottom)
             bar.rangeChanged.connect(self._on_range_changed)  # the content grew or shrank
             bar.actionTriggered.connect(self._on_user_scroll)  # dragging, keys, arrows
         self.transcript.viewport().installEventFilter(self)  # mouse wheel and touchpad
@@ -291,18 +313,34 @@ class OverlayWindow(QWidget):
         _repolish(self.lock_button)
 
     def _scroll_to_bottom(self) -> None:
+        """Jump (no animation) to the newest sentence."""
+        self._glide.stop()
         bar = self.transcript.verticalScrollBar()
         if bar is not None:
             bar.setValue(bar.maximum())
 
     def _on_range_changed(self, _low: int, high: int) -> None:
-        # Runs after the layout has settled, so wrapped text is already measured.
-        if self._follow.locked:
-            bar = self.transcript.verticalScrollBar()
-            if bar is not None:
-                bar.setValue(high)
+        # The content changed size (new text, a new bubble, a resize). Moving only matters
+        # once its end is below the window's bottom edge; and not on every change, because
+        # live text grows many times a second. One timer batches those changes.
+        if not self._follow.locked:
+            return
+        bar = self.transcript.verticalScrollBar()
+        if bar is not None and bar.value() < high and not self._settle.isActive():
+            self._settle.start()
+
+    def _glide_to_bottom(self) -> None:
+        bar = self.transcript.verticalScrollBar()
+        if bar is None or not self._follow.locked or bar.value() >= bar.maximum():
+            return
+        self._glide.stop()
+        self._glide.setStartValue(bar.value())
+        self._glide.setEndValue(bar.maximum())
+        self._glide.start()
 
     def _on_user_scroll(self, _action: int = 0) -> None:
+        self._glide.stop()
+        self._settle.stop()
         if self._follow.user_scrolled():
             self._show_lock()
 
