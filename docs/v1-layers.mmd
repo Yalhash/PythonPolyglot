@@ -1,0 +1,30 @@
+flowchart TB
+  ROOT["<b>Composition root</b><br/>app.py (Qt) · wiring.py · controller.py<br/>config → adapters → pipeline → presenter"]
+
+  subgraph UI["Presentation · polyglot.ui"]
+    PRES["Presenter + view model<br/>(pure Python)"]
+    QT["Qt views · ui/qt<br/>overlay · settings · hotkeys<br/>EventBridge · CaptureShieldFilter"]
+  end
+
+  subgraph CORE["Core · polyglot.core (stdlib + numpy only)"]
+    MODEL["Domain model<br/>Utterance · SpeechSegment · Suggestion"]
+    PORTS["Ports (Protocols)<br/>AudioSource · Resampler · VoiceActivityModel<br/>Transcriber · Translator · Suggester<br/>WindowShield · SecretStore"]
+    PIPE["Pipeline · Segmenter · Session<br/>EventBus · RingBuffer"]
+  end
+
+  subgraph AD["Adapters · polyglot.adapters"]
+    A1["WASAPI loopback · sounddevice · WAV<br/>soxr resampler"]
+    A2["Silero VAD · energy VAD<br/>faster-whisper"]
+    A3["OpenAI / Google (stdlib HTTP)<br/>keyring · fakes"]
+  end
+
+  PLAT["Platform · polyglot.platform<br/>WindowsShield (SetWindowDisplayAffinity)<br/>UnsupportedShield (macOS/Linux)"]
+  CFG["Config · polyglot.config<br/>typed AppConfig · TOML · env · keyring"]
+
+  ROOT -.builds.-> UI
+  ROOT -.builds.-> AD
+  ROOT -.reads.-> CFG
+  UI --> CORE
+  AD --> CORE
+  PLAT --> CORE
+  CFG --> CORE

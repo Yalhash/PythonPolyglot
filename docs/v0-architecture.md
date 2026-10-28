@@ -1,6 +1,6 @@
 # Architecture (v0 prototype)
 
-![Architecture](architecture.png)
+![Architecture](v0-architecture.png)
 
 ```mermaid
 flowchart TB

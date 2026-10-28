@@ -1,0 +1,11 @@
+flowchart TB
+  SRC(("Audio source<br/>(library thread)")) -->|"downmix + copy only"| RB[["RingBuffer<br/>30 s, overwrite oldest"]]
+  RB --> FE["<b>Front end</b> thread<br/>resample → 32 ms frames<br/>→ VAD → Segmenter<br/>gap-fill when loopback is silent"]
+  FE -->|"finals ≤ 8 (drop oldest → FAILED overloaded)<br/>partials: latest only"| AQ[["AsrQueue"]]
+  AQ --> ASR["<b>ASR worker</b><br/>exactly one thread<br/>faster-whisper, ID order"]
+  FE -->|"started / discarded"| CO
+  ASR -->|"transcripts"| CO["<b>Coordinator</b><br/>sole owner of Session<br/>places results by utterance ID"]
+  CO <-->|"translate (3 s)<br/>suggest (6 s, on hotkey)"| NET["Network pool<br/>4 threads, 1 retry"]
+  CO -->|"immutable events"| BUS[["EventBus"]]
+  BUS --> BR["EventBridge<br/>queued Qt signal"]
+  BR -->|"GUI thread"| PR["Presenter"] --> VIEW["Overlay (passive view)"]
