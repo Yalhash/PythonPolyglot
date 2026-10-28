@@ -108,13 +108,13 @@ class SileroVad:
         self._state = {
             n: np.zeros(i.state_shapes[n], dtype=i.state_dtypes[n]) for n in i.state_names
         }
-        self._context = np.zeros((1, i.context), dtype=np.float32)
+        self._context: Any = np.zeros((1, i.context), dtype=np.float32)
 
     def speech_prob(self, frame: RawAudio) -> float:
         if frame.shape[0] != FRAME_SAMPLES:
             raise ValueError(f"Silero expects {FRAME_SAMPLES}-sample frames")
         i = self._iface
-        x = np.asarray(frame, dtype=np.float32).reshape(1, -1)
+        x: Any = np.asarray(frame, dtype=np.float32).reshape(1, -1)
         if i.context:
             x = np.concatenate((self._context, x), axis=1)
             self._context = x[:, -i.context :]

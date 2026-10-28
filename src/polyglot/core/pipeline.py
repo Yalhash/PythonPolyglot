@@ -262,7 +262,7 @@ class FrontEnd:
         self._seg, self._q, self._post, self._cfg = segmenter, asr_queue, post, cfg
         self._tap = segment_tap
         self._clock = wall_clock
-        self._pending = np.zeros(0, dtype=np.float32)
+        self._pending: RawAudio = np.zeros(0, dtype=np.float32)
         self._t = 0.0  # stream time of the next frame, seconds
         self._stop = threading.Event()
         self._eof = threading.Event()

@@ -165,6 +165,9 @@ def test_shield_filter_covers_every_top_level_window(qtbot: Any) -> None:
 def test_real_windows_shield_hides_a_window(qtbot: Any) -> None:
     from polyglot.platform.windows import WindowsShield
 
+    app = QApplication.instance()
+    if app is None or app.platformName() != "windows":  # offscreen has no real HWNDs
+        pytest.skip("needs the native Windows Qt platform")
     w = QWidget()
     qtbot.addWidget(w)
     w.show()

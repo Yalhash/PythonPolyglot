@@ -62,7 +62,8 @@ jobs:
         python: ["3.10", "3.12"]
     runs-on: ${{ matrix.os }}
     env:
-      QT_QPA_PLATFORM: offscreen
+      # Native windows on Windows so the real capture-shield API is exercised.
+      QT_QPA_PLATFORM: ${{ matrix.os == 'windows-latest' && 'windows' || 'offscreen' }}
       PYTHONUTF8: "1"
     steps:
       - uses: actions/checkout@v4

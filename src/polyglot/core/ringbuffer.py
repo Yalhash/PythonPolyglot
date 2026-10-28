@@ -37,7 +37,7 @@ class RingBuffer:
 
     def write(self, block: RawAudio) -> None:
         """Append mono samples. Never blocks for longer than one copy."""
-        data = np.asarray(block, dtype=np.float32).reshape(-1)
+        data: RawAudio = np.asarray(block, dtype=np.float32).reshape(-1)
         n = data.shape[0]
         if n == 0:
             return
