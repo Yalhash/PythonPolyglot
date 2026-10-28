@@ -307,9 +307,7 @@ def test_settings_dialog_survives_device_listing_error(qtbot: Any) -> None:
     assert dlg.result_config == AppConfig()
 
 
-def test_app_smoke_demo_mode(
-    qtbot: Any, tmp_path: Path, caplog: pytest.LogCaptureFixture
-) -> None:
+def test_app_smoke_demo_mode(qtbot: Any, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
     """Start the real GUI in demo mode, let it run briefly, quit cleanly.
 
     Also the regression test for shutdown order: with the capture shield on (the

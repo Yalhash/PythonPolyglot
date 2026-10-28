@@ -76,8 +76,15 @@ class AsrConfig(_Section):
     #: auto = the fastest type the device supports (int8 on CPU, float16 on CUDA).
     #: "default" would keep the model's saved float16, which CPUs convert to slow float32.
     compute_type: Literal[
-        "auto", "int8", "int8_float16", "int8_float32", "int8_bfloat16",
-        "int16", "float16", "bfloat16", "float32",
+        "auto",
+        "int8",
+        "int8_float16",
+        "int8_float32",
+        "int8_bfloat16",
+        "int16",
+        "float16",
+        "bfloat16",
+        "float32",
     ] = "auto"
     beam_size: int = Field(5, ge=1, le=10)
     language: str | None = None  # force a source language; None = auto-detect then lock
