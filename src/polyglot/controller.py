@@ -148,5 +148,6 @@ class AppController:
         self.warnings = list(self.built.warnings)
         for w in self.warnings:
             self.bus.publish(StageError("setup", ErrorKind.NOT_CONFIGURED, w))
+        self.built.pipeline.retranslate_pending()  # requests dropped by the old pipeline
         if was_listening:
             self.built.pipeline.start()

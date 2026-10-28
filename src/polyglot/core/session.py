@@ -49,6 +49,13 @@ class Session:
             finals = [u.id for u in self.utterances.values() if u.is_final]
             self.latest_final_id = max(finals) if finals else None
 
+    def latest_answerable(self) -> Utterance | None:
+        """The most recent final utterance that has text (failed ones are skipped)."""
+        for u in reversed(self.ordered()):
+            if u.is_final and u.text and u.status is not UtteranceStatus.FAILED:
+                return u
+        return None
+
     def ordered(self) -> list[Utterance]:
         return [self.utterances[k] for k in sorted(self.utterances)]
 

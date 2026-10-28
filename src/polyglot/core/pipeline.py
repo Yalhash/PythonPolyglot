@@ -389,6 +389,9 @@ class AsrWorker:
         if self._thread is not None:
             self._thread.join(timeout)
 
+    def is_alive(self) -> bool:
+        return self._thread is not None and self._thread.is_alive()
+
     def _run(self) -> None:
         try:
             self._tr.load()
@@ -459,6 +462,7 @@ class Coordinator:
         self._pending_network = 0
         self.state = PipelineState.STOPPED
         self.source_ended = threading.Event()
+        self.on_fatal: Callable[[], None] | None = None  # set by Pipeline
         self._count_lock = threading.Lock()
         self._posted = 0  # messages accepted into the inbox
         self._handled = 0  # messages fully handled (written by the coordinator thread)
@@ -516,6 +520,11 @@ class Coordinator:
                     self._handled += 1
 
     def _set_state(self, state: PipelineState, detail: str = "") -> None:
+        if self.state is PipelineState.ERROR and state in (
+            PipelineState.LISTENING,
+            PipelineState.FALLING_BEHIND,
+        ):
+            return  # an error stays visible until the user stops or restarts
         if state != self.state or detail:
             self.state = state
             self._bus.publish(PipelineStatus(state, detail))
@@ -565,11 +574,16 @@ class Coordinator:
     # ------------------------------------------------------------------ ASR results
     def _on_asr_state(self, msg: _AsrState) -> None:
         if msg.ok:
-            self._set_state(PipelineState.LISTENING)
+            # A model that finishes loading after the user pressed Stop must not flip
+            # the status back to "listening".
+            if self.state is PipelineState.LOADING:
+                self._set_state(PipelineState.LISTENING)
             return
         self._set_state(PipelineState.ERROR, msg.detail)
         kind = msg.error.kind if msg.error else ErrorKind.TRANSCRIPTION
         self._bus.publish(StageError("asr", kind, msg.detail))
+        if self.on_fatal is not None:
+            self.on_fatal()  # nothing can be transcribed: stop capturing
 
     def _on_transcript(self, msg: _TranscriptDone) -> None:
         if msg.uid <= self._ignore_upto:
@@ -680,9 +694,8 @@ class Coordinator:
                 StageError("suggest", ErrorKind.NOT_CONFIGURED, "suggestions are not enabled")
             )
             return
-        target_id = self.session.latest_final_id
-        target = self.session.get(target_id) if target_id is not None else None
-        if target is None or not target.text:
+        target = self.session.latest_answerable()
+        if target is None:
             self._bus.publish(
                 StageError("suggest", ErrorKind.NOTHING_TO_ANSWER, "nothing has been said yet")
             )
@@ -731,6 +744,12 @@ class Coordinator:
             self._bus.publish(LanguageChanged(cmd.arg, locked=cmd.arg is not None))
         elif cmd.name == "set_target":
             self.session.target_language = cmd.arg
+        elif cmd.name == "abandon_open":
+            self._abandon_open()
+        elif cmd.name == "retranslate":
+            for u in self.session.ordered():
+                if u.status is UtteranceStatus.FINAL and u.translation is None and u.error is None:
+                    self._dispatch_translation(u)
         elif cmd.name == "status":
             state, detail = cmd.arg
             self._set_state(state, detail)
@@ -741,6 +760,16 @@ class Coordinator:
             self._suggest_gen += 1
         else:
             log.warning("unknown command %s", cmd.name)
+
+    def _abandon_open(self) -> None:
+        """After stopping: utterances that will never get a final transcript (the model
+        failed, or the worker could not finish in time) are marked failed, not left
+        "listening" forever."""
+        for u in self.session.ordered():
+            if u.status in (UtteranceStatus.LISTENING, UtteranceStatus.PARTIAL):
+                self._publish(
+                    u.evolve(status=UtteranceStatus.FAILED, error=ErrorKind.TRANSCRIPTION, t_end=u.t_start)
+                )
 
     # ------------------------------------------------------------------ network helpers
     def _submit(self, job: Callable[[], object]) -> None:
@@ -850,7 +879,13 @@ class Pipeline:
         self._coord = Coordinator(
             self.session, bus, self.cfg, translator, suggester, self._asr_depth
         )
+        self._coord.on_fatal = self._stop_in_background
         self._coord.start()
+
+    def _stop_in_background(self) -> None:
+        # Called on the coordinator thread; stop() drains the coordinator, so it must
+        # not run there.
+        threading.Thread(target=self.stop, name="polyglot-fatal-stop", daemon=True).start()
 
     def _asr_depth(self) -> int:
         q = self._asr_queue
@@ -875,6 +910,14 @@ class Pipeline:
             if self._running:
                 return
             cfg, coord = self.cfg, self._coord
+            previous = self._asr
+            if previous is not None and previous.is_alive():
+                previous.join(30.0)  # never two ASR workers: wait for the old one
+                if previous.is_alive():
+                    self._bus.publish(
+                        StageError("asr", ErrorKind.INTERNAL, "previous transcription still running; try again")
+                    )
+                    return
             coord.source_ended.clear()
             asr_q = AsrQueue(cfg.finals_queue_size)
             rate = self._source.sample_rate
@@ -917,6 +960,7 @@ class Pipeline:
             except Exception:
                 log.exception("audio source failed to stop cleanly")
             self._teardown(flush=True, timeout=timeout)
+            self._coord.post(_Command("abandon_open"))
             self._coord.post(_Command("status", (PipelineState.STOPPED, "")))
             # When stop() returns, the last utterance's transcript has been applied.
             self._coord.drain(timeout=2.0)
@@ -967,6 +1011,11 @@ class Pipeline:
 
     def set_target_language(self, language: str) -> None:
         self._coord.post(_Command("set_target", language))
+
+    def retranslate_pending(self) -> None:
+        """Translate final utterances still waiting for one (e.g. after a rebuild
+        dropped in-flight requests)."""
+        self._coord.post(_Command("retranslate"))
 
     def clear(self) -> None:
         """Forget the conversation. Late results for cleared utterances are ignored."""

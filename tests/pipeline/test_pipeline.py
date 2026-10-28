@@ -442,3 +442,84 @@ def test_partials_flow_then_final_overrides(
         if e.utterance.status is UtteranceStatus.PARTIAL
     ]
     assert versions == sorted(versions)
+
+
+# ---------------------------------------------------------------- lifecycle regressions
+# Found by an independent review probing start/stop/failure interleavings.
+
+
+def test_model_load_failure_stops_capture_and_keeps_error(make_pipeline: Any, recorder: Recorder) -> None:
+    asr = ScriptedTranscriber(load_error=TranscriptionFailed("no model"))
+    src = ArraySource(utterances_audio(6), SAMPLE_RATE, realtime=True)
+    p = make_pipeline(source=src, transcriber=asr, config=PipelineConfig(ring_seconds=60, finals_queue_size=1))
+    p.start()
+    assert wait_for(lambda: not p.running, 5), "capture should stop when the model cannot load"
+    assert wait_for(lambda: recorder.of(PipelineStatus)[-1].state is PipelineState.STOPPED, 5)
+    states = [s.state for s in recorder.of(PipelineStatus)]
+    assert PipelineState.ERROR in states
+    assert PipelineState.FALLING_BEHIND not in states[states.index(PipelineState.ERROR) :]
+    # nothing left "listening" forever
+    assert all(u.status is not UtteranceStatus.LISTENING for u in recorder.utterances().values())
+
+
+def test_model_loaded_after_stop_does_not_claim_listening(make_pipeline: Any, recorder: Recorder) -> None:
+    class SlowLoad(ScriptedTranscriber):
+        def load(self) -> None:
+            time.sleep(0.5)
+            super().load()
+
+    p = make_pipeline(utterances_audio(1), transcriber=SlowLoad())
+    p.start()
+    p.stop(timeout=0.1)
+    time.sleep(0.8)
+    assert p.state is PipelineState.STOPPED
+    assert recorder.of(PipelineStatus)[-1].state is PipelineState.STOPPED
+
+
+def test_restart_never_runs_two_asr_workers(make_pipeline: Any) -> None:
+    asr = ScriptedTranscriber(delay_s=0.5)
+    p = make_pipeline(utterances_audio(4), transcriber=asr)
+    p.start()
+    time.sleep(0.3)
+    p.stop(timeout=0.05)  # the worker is mid-transcription and outlives stop()
+    p.start()
+    time.sleep(1.5)
+    p.stop()
+    assert asr.max_concurrency == 1
+
+
+def test_suggestion_skips_a_failed_latest_sentence(make_pipeline: Any, recorder: Recorder) -> None:
+    asr = ScriptedTranscriber(["uno", "dos"], fail_on=[1], error=TranscriptionFailed("x"))
+    sug = CannedSuggester()
+    p = make_pipeline(utterances_audio(2), transcriber=asr, suggester=sug)
+    run_to_end(p)
+    p.request_suggestion()
+    assert wait_for(lambda: recorder.of(SuggestionsReady))
+    assert recorder.of(SuggestionsReady)[0].suggestion.utterance_id == 1
+
+
+def test_retranslate_pending_after_rebuild(bus: Any, recorder: Recorder) -> None:
+    from polyglot.adapters.audio.resample import IdentityResampler
+    from polyglot.adapters.fakes import AmplitudeVad
+    from polyglot.core.models import Utterance
+    from polyglot.core.pipeline import Pipeline
+    from polyglot.core.session import Session
+
+    session = Session("en")
+    session.put(Utterance(1, 0.0, 1.0, UtteranceStatus.FINAL, "hola", "es"))
+    p = Pipeline(
+        source=ArraySource(utterances_audio(0), SAMPLE_RATE),
+        resampler_factory=lambda _r: IdentityResampler(),
+        vad=AmplitudeVad(),
+        transcriber=ScriptedTranscriber(),
+        translator=EchoTranslator(),
+        suggester=None,
+        bus=bus,
+        session=session,
+    )
+    try:
+        p.retranslate_pending()
+        assert wait_for(lambda: session.get(1).status is UtteranceStatus.TRANSLATED)  # type: ignore[union-attr]
+        assert session.get(1).translation == "[es→en] hola"  # type: ignore[union-attr]
+    finally:
+        p.close()
