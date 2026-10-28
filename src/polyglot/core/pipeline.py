@@ -108,6 +108,7 @@ class AsrQueue:
         self._partials: dict[int, SpeechSegment] = {}
         self._cv = threading.Condition()
         self._closed = False
+        self._in_flight = 0  # taken by the worker, result not yet posted
 
     def put_final(self, seg: SpeechSegment) -> SpeechSegment | None:
         """Queue a final. Returns the dropped oldest final if the queue was full."""
@@ -128,15 +129,23 @@ class AsrQueue:
             if not self._finals and not self._partials and not self._closed:
                 self._cv.wait(timeout)
             if self._finals:
+                self._in_flight += 1
                 return self._finals.popleft()
             if self._partials:
                 uid = min(self._partials)
+                self._in_flight += 1
                 return self._partials.pop(uid)
             return None
 
-    def depth(self) -> int:
+    def done(self) -> None:
+        """The worker has posted the result for the segment it took."""
         with self._cv:
-            return len(self._finals) + len(self._partials)
+            self._in_flight -= 1
+
+    def depth(self) -> int:
+        """Queued plus in-hand segments: 0 means every result has been posted."""
+        with self._cv:
+            return len(self._finals) + len(self._partials) + self._in_flight
 
     def close(self) -> None:
         with self._cv:
@@ -403,6 +412,7 @@ class AsrWorker:
                 self._transcribe(seg)
             finally:
                 self.busy = False
+                self._q.done()
 
     def _transcribe(self, seg: SpeechSegment) -> None:
         t0 = time.monotonic()
@@ -449,13 +459,17 @@ class Coordinator:
         self._pending_network = 0
         self.state = PipelineState.STOPPED
         self.source_ended = threading.Event()
-        self._idle = threading.Event()
+        self._count_lock = threading.Lock()
+        self._posted = 0  # messages accepted into the inbox
+        self._handled = 0  # messages fully handled (written by the coordinator thread)
         self._timings: dict[int, float] = {}
 
     # ------------------------------------------------------------------ plumbing
     def post(self, msg: object) -> None:
         try:
-            self.inbox.put_nowait(msg)
+            with self._count_lock:
+                self.inbox.put_nowait(msg)
+                self._posted += 1
         except queue.Full:  # pragma: no cover - would need 10k messages backed up
             log.error("coordinator inbox full; dropping %s", type(msg).__name__)
 
@@ -470,21 +484,36 @@ class Coordinator:
         self._pool.shutdown(wait=False, cancel_futures=True)
 
     def is_idle(self) -> bool:
-        return self.inbox.empty() and self._pending_network == 0 and self._idle.is_set()
+        """Every posted message handled and no network job outstanding."""
+        with self._count_lock:
+            caught_up = self._handled >= self._posted
+        return caught_up and self._pending_network == 0
+
+    def drain(self, timeout: float) -> bool:
+        """Wait until every message posted before this call has been handled (network
+        jobs may still be in flight). Returns False on timeout."""
+        with self._count_lock:
+            target = self._posted
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if self._handled >= target:
+                return True
+            time.sleep(0.005)
+        return False
 
     def _run(self) -> None:
         while True:
-            self._idle.set()
             msg = self.inbox.get()
-            self._idle.clear()
-            if isinstance(msg, _Stop):
-                self._idle.set()
-                return
             try:
+                if isinstance(msg, _Stop):
+                    return
                 self._handle(msg)
             except Exception as exc:
                 log.exception("coordinator failed handling %s", type(msg).__name__)
                 self._bus.publish(StageError("coordinator", ErrorKind.INTERNAL, str(exc)))
+            finally:
+                with self._count_lock:
+                    self._handled += 1
 
     def _set_state(self, state: PipelineState, detail: str = "") -> None:
         if state != self.state or detail:
@@ -889,6 +918,8 @@ class Pipeline:
                 log.exception("audio source failed to stop cleanly")
             self._teardown(flush=True, timeout=timeout)
             self._coord.post(_Command("status", (PipelineState.STOPPED, "")))
+            # When stop() returns, the last utterance's transcript has been applied.
+            self._coord.drain(timeout=2.0)
 
     def close(self) -> None:
         """Stop listening and shut down the coordinator. The pipeline cannot be reused."""

@@ -68,11 +68,18 @@ def test_exactly_one_asr_worker(make_pipeline: Any) -> None:
 
 
 def test_language_locks_and_is_passed_to_whisper(make_pipeline: Any, recorder: Recorder) -> None:
-    asr = ScriptedTranscriber(TEXTS, language="es", probability=0.95)
+    # All audio arrives at once here, so the worker may pick up sentence 3 a moment
+    # before the coordinator locks the language from sentence 2. What is guaranteed:
+    # no hint before two agreeing finals, the hint applies once locked, and never reverts.
+    asr = ScriptedTranscriber(TEXTS * 2, language="es", probability=0.95, delay_s=0.05)
     cfg = PipelineConfig(ring_seconds=600, language_policy=LanguagePolicy(agree=2))
-    p = make_pipeline(utterances_audio(4), transcriber=asr, config=cfg)
+    p = make_pipeline(utterances_audio(6), transcriber=asr, config=cfg)
     run_to_end(p)
-    assert [hint for _, hint in asr.calls] == [None, None, "es", "es"]
+    hints = [hint for _, hint in asr.calls]
+    assert hints[:2] == [None, None]
+    first = hints.index("es")
+    assert all(h == "es" for h in hints[first:])
+    assert hints[-1] == "es"
     assert recorder.of(LanguageChanged) == [LanguageChanged("es", locked=True)]
 
 
@@ -419,7 +426,10 @@ def test_partials_flow_then_final_overrides(
         ring_seconds=600, segmenter=SegmenterConfig(partial_interval_ms=partial_ms)
     )
     asr = ScriptedTranscriber(lambda audio: f"{len(audio)} samples")
-    p = make_pipeline(utterances_audio(1, speech_s=2.0), transcriber=asr, config=cfg)
+    # Real-time pacing: if all audio arrived at once, the final would (correctly)
+    # replace the queued partials before any were transcribed.
+    src = ArraySource(utterances_audio(1, speech_s=1.5), SAMPLE_RATE, realtime=True, block_ms=32)
+    p = make_pipeline(source=src, transcriber=asr, config=cfg)
     run_to_end(p)
     from polyglot.core.events import UtteranceUpdated
 
