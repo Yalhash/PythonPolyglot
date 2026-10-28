@@ -1,0 +1,56 @@
+/* Polyglot overlay theme. One file; no inline stylesheets. */
+
+#Overlay { background: #16181d; color: #e8e8ea; font-size: 10pt; }
+
+#TitleBar { background: #1f2229; }
+#AppName { color: #e8e8ea; font-weight: 600; }
+#LanguageButton { background: transparent; border: none; color: #9aa0aa; padding: 2px 6px; }
+#LanguageButton:hover { color: #e8e8ea; }
+#IconButton, #CloseButton {
+    background: transparent; border: none; color: #c9ccd2;
+    min-width: 22px; max-width: 22px; min-height: 22px; max-height: 22px; border-radius: 4px;
+}
+#IconButton:hover { background: #2c3039; }
+#CloseButton:hover { background: #c0392b; color: white; }
+
+#Controls { background: #1a1d23; }
+#StartButton, #SuggestButton {
+    border: none; border-radius: 4px; padding: 5px 12px; font-weight: 600; color: white;
+}
+#StartButton { background: #2f7de1; }
+#StartButton:hover { background: #4a90e8; }
+#StartButton[listening="true"] { background: #c0392b; }
+#StartButton[listening="true"]:hover { background: #d0493b; }
+#StartButton:disabled { background: #3a3e47; color: #9aa0aa; }
+#SuggestButton { background: #3a3e47; }
+#SuggestButton:hover { background: #4a4f5a; }
+#Status { color: #9aa0aa; padding-left: 6px; }
+#Status[level="warn"] { color: #e3b341; }
+#Status[level="error"] { color: #f0705f; }
+
+#Transcript, #TranscriptBody { background: #16181d; border: none; }
+#Row { background: #1f2229; border-radius: 6px; }
+#Row[partial="true"] #Original { color: #9aa0aa; font-style: italic; }
+#Row[failed="true"] { border: 1px solid #6b2e28; }
+#Original { color: #e8e8ea; }
+#Translation { color: #8fc1ff; }
+#Note { color: #7d838d; font-size: 8.5pt; }
+
+#Suggestions { background: #1b1e24; border-top: 1px solid #2c3039; }
+#ReplyTo { color: #9aa0aa; font-size: 9pt; }
+#Option { background: #232733; border-radius: 6px; }
+#Option:hover { background: #2a2f3d; }
+#Option[copied="true"] { background: #24452f; }
+#Say { color: #e8e8ea; font-weight: 600; }
+#Means { color: #9aa0aa; font-style: italic; }
+#SuggestMessage { color: #9aa0aa; }
+#Stale { color: #e3b341; font-size: 8.5pt; }
+
+#Footer { background: #1a1d23; }
+#Capture { color: #e3b341; font-size: 8.5pt; }
+#Capture[hidden="true"] { color: #6fbf73; }
+
+QScrollBar:vertical { background: transparent; width: 8px; }
+QScrollBar::handle:vertical { background: #3a3e47; border-radius: 4px; min-height: 24px; }
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
+QToolTip { background: #2c3039; color: #e8e8ea; border: 1px solid #3a3e47; }
