@@ -24,7 +24,9 @@ def main() -> int:
     detail = getattr(shield, "detail", "")
     build = getattr(shield, "build", "?")
     level = "notice" if status is ShieldStatus.HIDDEN else "error"
-    print(f"::{level} title=Capture shield::{status.value} on {app.platformName()} build {build} {detail}")
+    print(
+        f"::{level} title=Capture shield::{status.value} on {app.platformName()} build {build} {detail}"
+    )
     w.close()
     return 0 if status is ShieldStatus.HIDDEN else 1
 
