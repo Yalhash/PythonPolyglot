@@ -6,10 +6,16 @@ dialog opened during a screen share. This event filter is installed on the
 QApplication and shields each window when it is shown, and again whenever Qt replaces
 its native handle (``WinIdChange``).
 
-``winId()`` is only called once the native window exists: called earlier it *creates*
-one, and on a window that is half created or already being torn down (a tooltip during a
-click) PyQt returns ``None``. A window without a handle yet is skipped; Qt sends
-``WinIdChange`` once the handle exists.
+Three rules keep it safe:
+
+* ``winId()`` is only called once the native window exists. Called earlier it *creates*
+  one, and on a window that is half created or being torn down PyQt returns ``None``.
+* ``WinIdChange`` is also sent while a window is being destroyed, when the object must
+  not be touched. So it is never handled on the spot: it schedules a re-scan of the
+  application's live top-level windows on the next event-loop turn.
+* No widget references are kept. Tooltips and menus are created and deleted by Qt in
+  C++, where PyQt cannot always tell that a wrapper has gone stale; only the ``destroyed``
+  signal (which carries no object) is used to forget a window.
 """
 
 from __future__ import annotations
@@ -19,8 +25,8 @@ import logging
 from collections.abc import Callable
 
 from PyQt6 import sip
-from PyQt6.QtCore import QEvent, QObject, Qt, pyqtSignal
-from PyQt6.QtWidgets import QWidget
+from PyQt6.QtCore import QEvent, QObject, Qt, QTimer, pyqtSignal
+from PyQt6.QtWidgets import QApplication, QWidget
 
 from polyglot.core.ports import ShieldStatus, WindowShield
 
@@ -56,13 +62,14 @@ class CaptureShieldFilter(QObject):
         super().__init__()
         self._shield = shield
         self._applied: dict[int, tuple[int, ShieldStatus]] = {}  # id(widget) -> (hwnd, status)
-        self._watched: list[tuple[QWidget, Callable[..., None]]] = []
         self._failed_once: set[int] = set()
+        self._rescan_pending = False
         self._closed = False
         self.status: ShieldStatus | None = None
 
+    # ------------------------------------------------------------ shielding
     def shield_widget(self, widget: QWidget) -> ShieldStatus | None:
-        """Shield one top-level window. Returns None if it has no native handle yet."""
+        """Shield one live top-level window. Returns None if it has no native handle yet."""
         if self._closed:
             return None
         win_id = native_handle(widget)
@@ -75,20 +82,42 @@ class CaptureShieldFilter(QObject):
             return known[1]
         status = self._shield.exclude_from_capture(win_id)
         if known is None:
-            slot = self._forgetter(key)
-            widget.destroyed.connect(slot)
-            self._watched.append((widget, slot))
+            widget.destroyed.connect(self._forgetter(key))
         self._applied[key] = (win_id, status)
         if status is not ShieldStatus.HIDDEN:
             log.info("window %s not hidden from capture: %s", _describe(widget), status.value)
         self._update()
         return status
 
+    def rescan(self) -> None:
+        """Shield every visible top-level window, using fresh objects from Qt."""
+        self._rescan_pending = False
+        if self._closed:
+            return
+        for widget in QApplication.topLevelWidgets():
+            if widget.isVisible():
+                self._shield_safely(widget)
+
+    def _shield_safely(self, widget: QWidget) -> None:
+        try:
+            self.shield_widget(widget)
+        except Exception as exc:
+            key = id(widget)
+            if key not in self._failed_once:  # one line per window, not one per event
+                self._failed_once.add(key)
+                log.warning("capture shield failed for %s: %r", _describe(widget), exc)
+
+    def _schedule_rescan(self) -> None:
+        if not self._rescan_pending and not self._closed:
+            self._rescan_pending = True
+            QTimer.singleShot(0, self.rescan)
+
+    # ------------------------------------------------------------ bookkeeping
     def _forgetter(self, key: int) -> Callable[..., None]:
         def forget(*_: object) -> None:
             if self._closed:
                 return
-            self._watched = [(w, s) for w, s in self._watched if id(w) != key]
+            self._failed_once.discard(key)
             if self._applied.pop(key, None) is not None:
                 self._update()
 
@@ -106,32 +135,21 @@ class CaptureShieldFilter(QObject):
         the windows are deleted, so their destruction cannot reach a deleted view."""
         if self._closed:
             return
-        self._closed = True
-        for widget, slot in self._watched:
-            if not sip.isdeleted(widget):
-                with contextlib.suppress(TypeError):  # already disconnected
-                    widget.destroyed.disconnect(slot)
-        self._watched.clear()
+        self._closed = True  # pending forgetters and re-scans become no-ops
         self._applied.clear()
         with contextlib.suppress(TypeError):  # nothing connected
             self.status_changed.disconnect()
 
+    # ------------------------------------------------------------ event filter
     def eventFilter(self, obj: QObject | None, event: QEvent | None) -> bool:
-        if (
-            not self._closed
-            and event is not None
-            and event.type() in (QEvent.Type.Show, QEvent.Type.WinIdChange)
-            and isinstance(obj, QWidget)
-            and not sip.isdeleted(obj)
-            and obj.isWindow()
-        ):
-            try:
-                self.shield_widget(obj)
-            except Exception as exc:
-                key = id(obj)
-                if key not in self._failed_once:  # one line per window, not one per click
-                    self._failed_once.add(key)
-                    log.warning("capture shield failed for %s: %r", _describe(obj), exc)
+        if self._closed or event is None:
+            return False
+        kind = event.type()
+        if kind == QEvent.Type.WinIdChange:
+            # May arrive from a window's destructor: never touch ``obj`` here.
+            self._schedule_rescan()
+        elif kind == QEvent.Type.Show and isinstance(obj, QWidget) and obj.isWindow():
+            self._shield_safely(obj)  # a window being shown is alive
         return False
 
 

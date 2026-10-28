@@ -183,6 +183,29 @@ def test_shield_filter_never_creates_a_native_handle(qtbot: Any) -> None:
     assert shield.calls == [native_handle(w)]
 
 
+def test_winid_change_is_deferred_to_a_rescan_of_live_windows(qtbot: Any) -> None:
+    """WinIdChange can arrive from a window's destructor, so the filter never touches the
+    object it came with; it re-scans the live top-level windows on the next loop turn."""
+    from polyglot.ui.qt.shield_filter import CaptureShieldFilter, native_handle
+
+    w = QWidget()
+    qtbot.addWidget(w)
+    w.show()
+    qtbot.waitExposed(w)
+    shield = NoopShield(ShieldStatus.HIDDEN)
+    filt = CaptureShieldFilter(shield)
+    app = QApplication.instance()
+    assert app is not None
+    app.installEventFilter(filt)
+    try:
+        QApplication.sendEvent(w, QEvent(QEvent.Type.WinIdChange))
+        assert shield.calls == []  # not handled on the spot
+        qtbot.waitUntil(lambda: native_handle(w) in shield.calls, timeout=2000)
+    finally:
+        app.removeEventFilter(filt)
+        filt.close()
+
+
 def test_clicking_overlay_buttons_raises_nothing_and_adds_no_native_children(
     qtbot: Any, caplog: pytest.LogCaptureFixture
 ) -> None:
