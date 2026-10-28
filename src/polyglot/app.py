@@ -116,7 +116,8 @@ def run_gui(config_path: Path | None, *, demo: bool = False) -> int:
     hotkeys = GlobalHotkeys()
     hotkeys.suggest.connect(presenter.on_suggest)
     hotkeys.toggle_window.connect(window.toggle_visible)
-    hotkeys.bind(config.ui.hotkey_suggest, config.ui.hotkey_toggle)
+    hotkeys.toggle_lock.connect(window.toggle_lock)
+    hotkeys.bind(config.ui.hotkey_suggest, config.ui.hotkey_toggle, config.ui.hotkey_lock)
 
     model_catalog = OpenAIModelCatalog()  # caches the account's model list per session
     mic_tester = SoundDeviceMicTester()
@@ -142,7 +143,7 @@ def run_gui(config_path: Path | None, *, demo: bool = False) -> int:
             refresh_flags()
             presenter.on_user_language(new.translation.target_language)
             window.setWindowOpacity(new.ui.opacity)
-            hotkeys.bind(new.ui.hotkey_suggest, new.ui.hotkey_toggle)
+            hotkeys.bind(new.ui.hotkey_suggest, new.ui.hotkey_toggle, new.ui.hotkey_lock)
             if new.ui.hide_from_capture and shield_filter is None:
                 shield_filter = CaptureShieldFilter(platform.window_shield())
                 shield_filter.status_changed.connect(presenter.on_shield_status)

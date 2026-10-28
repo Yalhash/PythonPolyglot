@@ -35,8 +35,13 @@ On first real run Whisper downloads its model (`base` is about 150 MB).
 | --- | --- |
 | Suggest replies to the last sentence | `Ctrl+Alt+S` |
 | Show / hide the window | `Ctrl+Alt+H` |
+| Lock / unlock following the latest sentence | `Ctrl+Alt+L` |
 
 Inside the window: `Ctrl+Enter` suggests, `Esc` hides. Click a suggestion to copy it.
+
+The transcript follows the newest sentence (🔒, next to Suggest). Scrolling by hand
+unlocks it (🔓) so the view stays where you are reading; it follows again only when you
+click the lock button or press `Ctrl+Alt+L`, which also jumps to the latest sentence.
 
 ### Audio source
 
@@ -93,7 +98,7 @@ conversation. Fill it in once; it is saved in `config.toml` (the `[profile]` sec
 used every time. Suggestions also see what was said earlier in the conversation, up to
 `suggestions.history` utterances or `suggestions.history_chars` characters.
 
-Everything in your profile is sent to OpenAI with each suggestion request, so it only has
+Everything in your profile is sent to the AI provider with each suggestion request, so it only has
 fields for things you would say out loud to the other person. There is deliberately no field
 for health, politics, religion, money or other private details, and the free-text fields are
 yours to keep clean. Profile edits take effect on the next suggestion with no restart.

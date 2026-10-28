@@ -226,6 +226,7 @@ class UiConfig(_Section):
     hide_from_capture: bool = True
     hotkey_suggest: str = "<ctrl>+<alt>+s"
     hotkey_toggle: str = "<ctrl>+<alt>+h"
+    hotkey_lock: str = "<ctrl>+<alt>+l"  # lock/unlock following the latest sentence
 
 
 class PrivacyConfig(_Section):

@@ -196,7 +196,11 @@ Model–View–Presenter with a passive view:
   error wording, "translating…", "Replying to: …") and turns clicks and hotkeys into
   `Commands`.
 * `OverlayWindow` draws rows by ID, the suggestion panel, a status strip and the capture
-  indicator. It emits intent signals and holds no logic.
+  indicator. It emits intent signals and holds no logic beyond view state: `FollowLock`
+  (pure, `ui/follow.py`) decides whether the transcript follows the newest sentence. It
+  starts locked, unlocks when the user scrolls, and re-locks only on the lock button or
+  hotkey. The window scrolls when the scroll range changes, i.e. after the layout has
+  measured the new text.
 
 ## Platform layer
 

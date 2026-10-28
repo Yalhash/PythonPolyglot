@@ -583,3 +583,61 @@ def test_debug_settings_live_in_the_audio_tab_under_a_debug_title(qtbot: Any) ->
     dlg.dump_audio.setChecked(True)
     dlg._save()
     assert dlg.result_config is not None and dlg.result_config.privacy.dump_audio
+
+
+# ------------------------------------------------------------------ follow the latest
+def _rows(window: Any, n: int) -> None:
+    from polyglot.ui.presenter import RowVM
+
+    for i in range(1, n + 1):
+        window.upsert_row(RowVM(id=i, original=f"sentence {i} " * 12, translation="x " * 40))
+
+
+def test_transcript_follows_the_latest_sentence_by_default(qtbot: Any) -> None:
+    from polyglot.config import UiConfig
+    from polyglot.ui.qt.overlay import OverlayWindow
+
+    window = OverlayWindow(UiConfig(height=320))
+    qtbot.addWidget(window)
+    window.show()
+    assert window.locked and window.lock_button.text() == "🔒"
+    _rows(window, 12)
+    bar = window.transcript.verticalScrollBar()
+    qtbot.waitUntil(lambda: bar.maximum() > 0 and bar.value() == bar.maximum(), timeout=3000)
+
+
+def test_scrolling_unlocks_and_the_button_relocks(qtbot: Any) -> None:
+    from PyQt6.QtWidgets import QAbstractSlider
+
+    from polyglot.config import UiConfig
+    from polyglot.ui.qt.overlay import OverlayWindow
+
+    window = OverlayWindow(UiConfig(height=320))
+    qtbot.addWidget(window)
+    window.show()
+    _rows(window, 12)
+    bar = window.transcript.verticalScrollBar()
+    qtbot.waitUntil(lambda: bar.maximum() > 0 and bar.value() == bar.maximum(), timeout=3000)
+
+    bar.triggerAction(QAbstractSlider.SliderAction.SliderPageStepSub)  # as if the user scrolled
+    assert not window.locked and window.lock_button.text() == "🔓"
+    position = bar.value()
+    _rows(window, 14)  # new sentences arrive: the view must not move
+    qtbot.wait(100)
+    assert bar.value() == position
+
+    window.lock_button.click()
+    assert window.locked and window.lock_button.text() == "🔒"
+    qtbot.waitUntil(lambda: bar.value() == bar.maximum(), timeout=3000)
+
+
+def test_toggle_lock_is_the_hotkey_entry_point(qtbot: Any) -> None:
+    from polyglot.config import UiConfig
+    from polyglot.ui.qt.overlay import OverlayWindow
+
+    window = OverlayWindow(UiConfig())
+    qtbot.addWidget(window)
+    window.toggle_lock()
+    assert not window.locked
+    window.toggle_lock()
+    assert window.locked

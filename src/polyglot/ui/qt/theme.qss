@@ -14,7 +14,7 @@
 #CloseButton:hover { background: #c0392b; color: white; }
 
 #Controls { background: #1a1d23; }
-#StartButton, #SuggestButton {
+#StartButton, #SuggestButton, #LockButton {
     border: none; border-radius: 4px; padding: 5px 12px; font-weight: 600; color: white;
 }
 #StartButton { background: #2f7de1; }
@@ -24,6 +24,10 @@
 #StartButton:disabled { background: #3a3e47; color: #9aa0aa; }
 #SuggestButton { background: #3a3e47; }
 #SuggestButton:hover { background: #4a4f5a; }
+#LockButton { background: #3a3e47; padding: 4px 8px; }
+#LockButton:hover { background: #4a4f5a; }
+#LockButton[locked="true"] { background: #2f7de1; }
+#LockButton[locked="true"]:hover { background: #4a90e8; }
 #Status { color: #9aa0aa; padding-left: 6px; }
 #Status[level="warn"] { color: #e3b341; }
 #Status[level="error"] { color: #f0705f; }

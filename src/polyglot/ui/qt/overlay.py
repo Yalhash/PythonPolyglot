@@ -6,7 +6,7 @@ from __future__ import annotations
 import bisect
 from importlib import resources
 
-from PyQt6.QtCore import QPoint, Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import QEvent, QObject, QPoint, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QGuiApplication, QKeySequence, QMouseEvent, QShortcut
 from PyQt6.QtWidgets import (
     QFrame,
@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
 )
 
 from polyglot.config import UiConfig
+from polyglot.ui.follow import FollowLock
 from polyglot.ui.presenter import CaptureVM, OptionVM, RowVM, StatusVM, SuggestionVM
 
 
@@ -155,6 +156,7 @@ class OverlayWindow(QWidget):
         self.setStyleSheet(load_stylesheet())
         self._rows: dict[int, RowWidget] = {}
         self._order: list[int] = []
+        self._follow = FollowLock()
         self._build()
         self.apply_ui(ui)
         QShortcut(QKeySequence("Ctrl+Return"), self).activated.connect(self.suggest_clicked.emit)
@@ -200,8 +202,11 @@ class OverlayWindow(QWidget):
         self.suggest.clicked.connect(self.suggest_clicked.emit)
         self.status = _label("Stopped", "Status", wrap=False, selectable=False)
         self.status.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self.lock_button = _button("", "LockButton", "")
+        self.lock_button.clicked.connect(self.toggle_lock)
         cl.addWidget(self.start)
         cl.addWidget(self.suggest)
+        cl.addWidget(self.lock_button)
         cl.addWidget(self.status, 1)
         root.addWidget(controls)
 
@@ -217,6 +222,12 @@ class OverlayWindow(QWidget):
         self.rows_layout.addStretch(1)
         self.transcript.setWidget(holder)
         root.addWidget(self.transcript, 3)
+        bar = self.transcript.verticalScrollBar()
+        if bar is not None:
+            bar.rangeChanged.connect(self._on_range_changed)  # the content grew or shrank
+            bar.actionTriggered.connect(self._on_user_scroll)  # dragging, keys, arrows
+        self.transcript.viewport().installEventFilter(self)  # mouse wheel and touchpad
+        self._show_lock()
 
         self.suggestions = QFrame()
         self.suggestions.setObjectName("Suggestions")
@@ -257,18 +268,53 @@ class OverlayWindow(QWidget):
             self.show()
             self.raise_()
 
-    # ------------------------------------------------------------ ViewPort
-    def _at_bottom(self) -> bool:
-        bar = self.transcript.verticalScrollBar()
-        return bar is None or bar.value() >= bar.maximum() - 4
+    # ------------------------------------------------------------ following the latest
+    @property
+    def locked(self) -> bool:
+        return self._follow.locked
+
+    def toggle_lock(self) -> None:
+        """Lock or unlock following the newest sentence (button and hotkey)."""
+        if self._follow.toggle():
+            self._scroll_to_bottom()
+        self._show_lock()
+
+    def _show_lock(self) -> None:
+        locked = self._follow.locked
+        self.lock_button.setText("🔒" if locked else "🔓")
+        self.lock_button.setToolTip(
+            "Following the latest sentence. Scroll to stop; click to stay locked (Ctrl+Alt+L)."
+            if locked
+            else "Scrolling freely. Click to jump to the latest sentence and follow it (Ctrl+Alt+L)."
+        )
+        self.lock_button.setProperty("locked", locked)
+        _repolish(self.lock_button)
 
     def _scroll_to_bottom(self) -> None:
         bar = self.transcript.verticalScrollBar()
         if bar is not None:
             bar.setValue(bar.maximum())
 
+    def _on_range_changed(self, _low: int, high: int) -> None:
+        # Runs after the layout has settled, so wrapped text is already measured.
+        if self._follow.locked:
+            bar = self.transcript.verticalScrollBar()
+            if bar is not None:
+                bar.setValue(high)
+
+    def _on_user_scroll(self, _action: int = 0) -> None:
+        if self._follow.user_scrolled():
+            self._show_lock()
+
+    def eventFilter(self, a0: QObject | None, a1: QEvent | None) -> bool:
+        if a1 is not None and a1.type() == QEvent.Type.Wheel:
+            bar = self.transcript.verticalScrollBar()
+            if bar is not None and bar.maximum() > 0:  # nothing to scroll: stay locked
+                self._on_user_scroll()
+        return super().eventFilter(a0, a1)
+
+    # ------------------------------------------------------------ rows
     def upsert_row(self, row: RowVM) -> None:
-        follow = self._at_bottom()
         widget = self._rows.get(row.id)
         if widget is None:
             widget = RowWidget()
@@ -277,8 +323,6 @@ class OverlayWindow(QWidget):
             self.rows_layout.insertWidget(idx, widget)
             self._rows[row.id] = widget
         widget.apply(row)
-        if follow:
-            QTimer.singleShot(0, self._scroll_to_bottom)
 
     def remove_row(self, utterance_id: int) -> None:
         widget = self._rows.pop(utterance_id, None)
