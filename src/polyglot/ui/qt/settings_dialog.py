@@ -331,7 +331,9 @@ class SettingsDialog(QDialog):
         self.models_status.setText(f"{len(models)} models available to your key.")
 
     def _models_failed(self, error: str) -> None:
-        self.models_status.setText(f"Could not load your models ({error}); showing the built-in list.")
+        self.models_status.setText(
+            f"Could not load your models ({error}); showing the built-in list."
+        )
 
     def _key_field(self, name: str) -> QLineEdit:
         field = QLineEdit()

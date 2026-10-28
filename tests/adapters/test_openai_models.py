@@ -136,13 +136,21 @@ def test_model_list_keeps_general_text_models_known_first() -> None:
     ]  # fmt: skip
     http = FakeHttp(HttpResponse(200, json.dumps({"data": [{"id": i} for i in ids]})))
     models = list_chat_models("sk", http=http, timeout=4)
-    assert [m.id for m in models] == ["gpt-6-luna", "gpt-6.1-sol", "gpt-4o-mini", "gpt-7-nova", "o4-mini"]
+    assert [m.id for m in models] == [
+        "gpt-6-luna",
+        "gpt-6.1-sol",
+        "gpt-4o-mini",
+        "gpt-7-nova",
+        "o4-mini",
+    ]
     assert http.gets[0]["url"] == "https://api.openai.com/v1/models"
     assert http.gets[0]["headers"] == {"Authorization": "Bearer sk"}
     assert "Retires 2027-01-14" in next(m.note for m in models if m.id == "gpt-4o-mini")
 
 
-@pytest.mark.parametrize("model_id", ["gpt-4o-audio-preview", "gpt-4o-search-preview", "babbage-002"])
+@pytest.mark.parametrize(
+    "model_id", ["gpt-4o-audio-preview", "gpt-4o-search-preview", "babbage-002"]
+)
 def test_specialist_models_are_filtered(model_id: str) -> None:
     assert not is_text_chat_model(model_id)
 

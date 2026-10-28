@@ -329,7 +329,9 @@ class FakeModelCatalog:
         self._cache: dict[str, list[Any]] = {}
 
     def known(self) -> list[Any]:
-        return [self._ns(id=m, note=f"note {m}") for m in ("gpt-6-luna", "gpt-4o-mini", "gpt-4.1-mini")]
+        return [
+            self._ns(id=m, note=f"note {m}") for m in ("gpt-6-luna", "gpt-4o-mini", "gpt-4.1-mini")
+        ]
 
     def cached(self, key: str) -> list[Any] | None:
         return self._cache.get(key)

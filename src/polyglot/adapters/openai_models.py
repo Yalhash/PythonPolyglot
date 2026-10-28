@@ -41,8 +41,11 @@ RETIRING: dict[str, str] = {
 }
 
 _KNOWN: tuple[tuple[str, str], ...] = (
-    ("gpt-6-luna", "GPT-6, most efficient: fast and low cost. OpenAI's named replacement "
-                   "for gpt-4o-mini and gpt-4.1-mini."),  # fmt: skip
+    (
+        "gpt-6-luna",
+        "GPT-6, most efficient: fast and low cost. OpenAI's named replacement "
+        "for gpt-4o-mini and gpt-4.1-mini.",
+    ),  # fmt: skip
     ("gpt-6.1-terra", "GPT-6.1 family."),
     ("gpt-6.1-sol", "GPT-6.1 family, more capable; slower and costlier than luna."),
     ("gpt-6-astra", "GPT-6 flagship: most capable, slowest and most expensive."),
