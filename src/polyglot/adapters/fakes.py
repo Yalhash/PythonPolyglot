@@ -13,7 +13,13 @@ from collections.abc import Callable, Iterable, Sequence
 import numpy as np
 
 from polyglot.core.errors import PolyglotError
-from polyglot.core.models import FRAME_SAMPLES, SAMPLE_RATE, ReplyOption, SuggestionContext, Transcript
+from polyglot.core.models import (
+    FRAME_SAMPLES,
+    SAMPLE_RATE,
+    ReplyOption,
+    SuggestionContext,
+    Transcript,
+)
 from polyglot.core.ports import RawAudio, ShieldStatus
 
 
@@ -146,7 +152,9 @@ class NoopShield:
         return self.status
 
 
-def tone(seconds: float, freq: float = 220.0, amp: float = 0.3, rate: int = SAMPLE_RATE) -> RawAudio:
+def tone(
+    seconds: float, freq: float = 220.0, amp: float = 0.3, rate: int = SAMPLE_RATE
+) -> RawAudio:
     t = np.arange(int(seconds * rate), dtype=np.float32) / rate
     return (amp * np.sin(2 * np.pi * freq * t)).astype(np.float32)
 

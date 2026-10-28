@@ -70,9 +70,9 @@ from polyglot.core.ports import (
 from polyglot.core.ringbuffer import RingBuffer
 from polyglot.core.segmenter import (
     Discarded,
+    Segmenter,
     SegmenterConfig,
     SegmentReady,
-    Segmenter,
     SpeechStarted,
 )
 from polyglot.core.session import LanguagePolicy, Session
@@ -496,7 +496,7 @@ class Coordinator:
         self._bus.publish(UtteranceUpdated(u))
 
     # ------------------------------------------------------------------ dispatch
-    def _handle(self, msg: object) -> None:  # noqa: PLR0912 - a flat dispatch table
+    def _handle(self, msg: object) -> None:
         if isinstance(msg, _Started):
             if msg.uid > self._ignore_upto:
                 self._publish(Utterance(id=msg.uid, t_start=msg.t_start))
@@ -620,7 +620,9 @@ class Coordinator:
         def job() -> _TranslationDone:
             t0 = time.monotonic()
             try:
-                out = self._with_retry(lambda: translator.translate(text, source, target, timeout=timeout))
+                out = self._with_retry(
+                    lambda: translator.translate(text, source, target, timeout=timeout)
+                )
                 return _TranslationDone(u.id, out, None, (time.monotonic() - t0) * 1000)
             except PolyglotError as exc:
                 return _TranslationDone(u.id, None, exc, (time.monotonic() - t0) * 1000)
@@ -733,12 +735,14 @@ class Coordinator:
             except ProviderError as exc:
                 if not exc.retryable or attempt == attempts - 1:
                     raise
-                time.sleep(random.uniform(0.2, 0.5))  # noqa: S311 - jitter, not crypto
+                time.sleep(random.uniform(0.2, 0.5))
             except PolyglotError:
                 raise
             except Exception as exc:
                 log.exception("provider raised an unexpected error")
-                raise ProviderError(f"unexpected provider error: {exc}", kind=ErrorKind.INTERNAL, retryable=False) from exc
+                raise ProviderError(
+                    f"unexpected provider error: {exc}", kind=ErrorKind.INTERNAL, retryable=False
+                ) from exc
         raise AssertionError("unreachable")  # pragma: no cover
 
 
@@ -746,7 +750,12 @@ class Coordinator:
 class _Sink:
     """AudioSink for the pipeline. Runs on the audio library's thread: copy only."""
 
-    def __init__(self, ring: RingBuffer, frontend: Callable[[], FrontEnd | None], post: Callable[[object], None]) -> None:
+    def __init__(
+        self,
+        ring: RingBuffer,
+        frontend: Callable[[], FrontEnd | None],
+        post: Callable[[object], None],
+    ) -> None:
         self._ring, self._frontend, self._post = ring, frontend, post
         self._errored = False
 

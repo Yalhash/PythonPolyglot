@@ -6,9 +6,9 @@ import pytest
 from polyglot.core.models import FRAME_SAMPLES, FRAME_SECONDS, IdSource
 from polyglot.core.segmenter import (
     Discarded,
-    SegmentReady,
     Segmenter,
     SegmenterConfig,
+    SegmentReady,
     SpeechStarted,
 )
 
@@ -46,7 +46,13 @@ def test_start_needs_consecutive_frames() -> None:
 
 
 def test_pre_roll_is_included_and_t_start_is_its_first_frame() -> None:
-    seg = make(pre_roll_ms=96, start_frames=3, end_silence_ms=96, min_utterance_ms=0, trailing_silence_keep_ms=0)
+    seg = make(
+        pre_roll_ms=96,
+        start_frames=3,
+        end_silence_ms=96,
+        min_utterance_ms=0,
+        trailing_silence_keep_ms=0,
+    )
     probs = [0.0] * 10 + [0.9] * 5 + [0.0] * 3
     out = run(seg, probs)
     started = [o for o in out if isinstance(o, SpeechStarted)]
@@ -59,7 +65,13 @@ def test_pre_roll_is_included_and_t_start_is_its_first_frame() -> None:
 
 
 def test_ends_after_silence_and_trims_trailing_silence() -> None:
-    seg = make(pre_roll_ms=0, start_frames=1, end_silence_ms=320, trailing_silence_keep_ms=64, min_utterance_ms=0)
+    seg = make(
+        pre_roll_ms=0,
+        start_frames=1,
+        end_silence_ms=320,
+        trailing_silence_keep_ms=64,
+        min_utterance_ms=0,
+    )
     probs = [0.9] * 20 + [0.0] * 10  # 10 frames = 320 ms of silence ends it
     out = run(seg, probs)
     (ready,) = finals(out)
@@ -84,7 +96,13 @@ def test_short_noise_is_discarded() -> None:
 
 
 def test_force_cut_at_quietest_frame_and_continue_as_new_utterance() -> None:
-    seg = make(start_frames=1, pre_roll_ms=0, max_utterance_s=3.2, force_cut_window_s=0.64, min_utterance_ms=0)
+    seg = make(
+        start_frames=1,
+        pre_roll_ms=0,
+        max_utterance_s=3.2,
+        force_cut_window_s=0.64,
+        min_utterance_ms=0,
+    )
     n_max = 100  # 3.2 s / 32 ms
     probs = [0.9] * n_max
     probs[95] = 0.36  # quietest frame inside the last 20 frames (0.64 s)
@@ -103,7 +121,13 @@ def test_force_cut_at_quietest_frame_and_continue_as_new_utterance() -> None:
 
 
 def test_partials_have_increasing_versions_then_final() -> None:
-    seg = make(start_frames=1, pre_roll_ms=0, partial_interval_ms=320, end_silence_ms=320, min_utterance_ms=0)
+    seg = make(
+        start_frames=1,
+        pre_roll_ms=0,
+        partial_interval_ms=320,
+        end_silence_ms=320,
+        min_utterance_ms=0,
+    )
     out = run(seg, [0.9] * 35 + [0.0] * 10)
     partials = [o.segment for o in out if isinstance(o, SegmentReady) and not o.segment.is_final]
     assert [p.version for p in partials] == [0, 1, 2]

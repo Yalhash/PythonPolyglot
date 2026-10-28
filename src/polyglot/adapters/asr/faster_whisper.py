@@ -44,7 +44,9 @@ class FasterWhisperTranscriber:
                 download_root=self.download_root,
             )
         except Exception as exc:
-            raise TranscriptionFailed(f"could not load Whisper model {self.model_name!r}: {exc}") from exc
+            raise TranscriptionFailed(
+                f"could not load Whisper model {self.model_name!r}: {exc}"
+            ) from exc
 
     def transcribe(self, audio: RawAudio, language: str | None) -> Transcript:
         if self._model is None:

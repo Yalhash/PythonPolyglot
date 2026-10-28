@@ -16,15 +16,15 @@ import pytest
 pytest.importorskip("PyQt6")
 pytest.importorskip("pytestqt")
 
-from PyQt6.QtCore import QThread, QTimer  # noqa: E402
-from PyQt6.QtWidgets import QApplication, QDialog, QWidget  # noqa: E402
+from PyQt6.QtCore import QThread, QTimer
+from PyQt6.QtWidgets import QApplication, QDialog, QWidget
 
-from polyglot.adapters.fakes import NoopShield  # noqa: E402
-from polyglot.adapters.secrets import MemorySecretStore  # noqa: E402
-from polyglot.config import AppConfig, Secrets, UiConfig, save_config  # noqa: E402
-from polyglot.core.events import EventBus, PipelineState, PipelineStatus  # noqa: E402
-from polyglot.core.ports import ShieldStatus  # noqa: E402
-from polyglot.ui.presenter import CaptureVM, OptionVM, RowVM, StatusVM, SuggestionVM  # noqa: E402
+from polyglot.adapters.fakes import NoopShield
+from polyglot.adapters.secrets import MemorySecretStore
+from polyglot.config import AppConfig, Secrets, UiConfig, save_config
+from polyglot.core.events import EventBus, PipelineState, PipelineStatus
+from polyglot.core.ports import ShieldStatus
+from polyglot.ui.presenter import CaptureVM, OptionVM, RowVM, StatusVM, SuggestionVM
 
 pytestmark = pytest.mark.ui
 
@@ -72,7 +72,9 @@ def test_suggestions_panel(window: Any) -> None:
     assert not window.suggestions.isHidden()
     assert window.suggest_message.text() == "Thinking…"
     window.show_suggestions(
-        SuggestionVM(reply_to="¿Qué?", options=(OptionVM("Sí", "Yes"), OptionVM("No", "No")), stale=True)
+        SuggestionVM(
+            reply_to="¿Qué?", options=(OptionVM("Sí", "Yes"), OptionVM("No", "No")), stale=True
+        )
     )
     assert window.options_layout.count() == 2
     assert not window.stale.isHidden()
@@ -174,7 +176,9 @@ def test_settings_dialog_builds_config_and_stores_keys(qtbot: Any) -> None:
     from polyglot.ui.qt.settings_dialog import SettingsDialog
 
     secrets = Secrets(MemorySecretStore(), environ={})
-    dlg = SettingsDialog(AppConfig(), secrets, lambda: [{"id": 3, "name": "BlackHole 2ch", "virtual": True}])
+    dlg = SettingsDialog(
+        AppConfig(), secrets, lambda: [{"id": 3, "name": "BlackHole 2ch", "virtual": True}]
+    )
     qtbot.addWidget(dlg)
     dlg.translate_on.setChecked(True)
     dlg.openai_key.setText("sk-test")
@@ -184,7 +188,11 @@ def test_settings_dialog_builds_config_and_stores_keys(qtbot: Any) -> None:
     dlg._save()
     cfg = dlg.result_config
     assert cfg is not None
-    assert cfg.translation.enabled and cfg.vad.end_silence_ms == 800 and cfg.vad.partial_interval_ms == 1000
+    assert (
+        cfg.translation.enabled
+        and cfg.vad.end_silence_ms == 800
+        and cfg.vad.partial_interval_ms == 1000
+    )
     assert cfg.audio.device == "3"
     assert secrets.get(Secrets.OPENAI) == "sk-test" and dlg.keys_changed
 

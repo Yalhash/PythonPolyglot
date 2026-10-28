@@ -51,7 +51,9 @@ def test_toml_output_is_valid_and_skips_none() -> None:
 
 def test_precedence_env_over_file_over_default(tmp_path: Path) -> None:
     path = tmp_path / "config.toml"
-    path.write_text('[asr]\nmodel = "small"\nbeam_size = 3\n[ui]\nopacity = 0.5\n', encoding="utf-8")
+    path.write_text(
+        '[asr]\nmodel = "small"\nbeam_size = 3\n[ui]\nopacity = 0.5\n', encoding="utf-8"
+    )
     env = {
         "POLYGLOT_ASR__MODEL": "medium",
         "POLYGLOT_TRANSLATION__ENABLED": "true",
@@ -69,7 +71,12 @@ def test_precedence_env_over_file_over_default(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize(
     "content",
-    ["[asr]\nbeam_size = 99\n", "[vad]\nstart_threshold = 0.3\nend_threshold = 0.6\n", "[asr]\nunknown = 1\n", "not toml ["],
+    [
+        "[asr]\nbeam_size = 99\n",
+        "[vad]\nstart_threshold = 0.3\nend_threshold = 0.6\n",
+        "[asr]\nunknown = 1\n",
+        "not toml [",
+    ],
 )
 def test_invalid_config_raises_config_error(tmp_path: Path, content: str) -> None:
     path = tmp_path / "config.toml"
@@ -91,7 +98,12 @@ def test_secrets_env_overrides_store() -> None:
     store = MemorySecretStore({Secrets.OPENAI: "from-store"})
     assert Secrets(store, environ={}).get(Secrets.OPENAI) == "from-store"
     assert Secrets(store, environ={"OPENAI_API_KEY": "env"}).get(Secrets.OPENAI) == "env"
-    assert Secrets(store, environ={"POLYGLOT_OPENAI_API_KEY": "p", "OPENAI_API_KEY": "env"}).get(Secrets.OPENAI) == "p"
+    assert (
+        Secrets(store, environ={"POLYGLOT_OPENAI_API_KEY": "p", "OPENAI_API_KEY": "env"}).get(
+            Secrets.OPENAI
+        )
+        == "p"
+    )
     s = Secrets(store, environ={})
     s.set(Secrets.GOOGLE, "g")
     assert s.get(Secrets.GOOGLE) == "g"

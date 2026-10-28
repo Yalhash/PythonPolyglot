@@ -73,4 +73,6 @@ class OpenAITranslator:
                 {"role": "user", "content": text},
             ],
         }
-        return chat_text(self._http, api_key=self._key, base_url=self._base, payload=payload, timeout=timeout)
+        return chat_text(
+            self._http, api_key=self._key, base_url=self._base, payload=payload, timeout=timeout
+        )

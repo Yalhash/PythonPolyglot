@@ -84,14 +84,18 @@ class WasapiLoopbackSource:
         self._open()
         if self._follow:
             self._watch_stop.clear()
-            self._watcher = threading.Thread(target=self._watch, name="polyglot-loopback-watch", daemon=True)
+            self._watcher = threading.Thread(
+                target=self._watch, name="polyglot-loopback-watch", daemon=True
+            )
             self._watcher.start()
 
     def _open(self) -> None:
         pyaudio, sink, channels = self._pyaudio, self._sink, self._channels
         assert sink is not None
 
-        def callback(in_data: bytes, frame_count: int, time_info: Any, status: int) -> tuple[None, int]:
+        def callback(
+            in_data: bytes, frame_count: int, time_info: Any, status: int
+        ) -> tuple[None, int]:
             sink.on_audio(np.frombuffer(in_data, dtype=np.float32).reshape(-1, channels))
             return None, pyaudio.paContinue
 
@@ -127,7 +131,10 @@ class WasapiLoopbackSource:
             if current["name"] == self._device["name"]:
                 continue
             with self._lock:
-                if int(current["defaultSampleRate"]) != self._rate or int(current["maxInputChannels"]) != self._channels:
+                if (
+                    int(current["defaultSampleRate"]) != self._rate
+                    or int(current["maxInputChannels"]) != self._channels
+                ):
                     # The pipeline's buffers were sized for the old format: ask for a restart.
                     if self._sink is not None:
                         self._sink.on_error(
@@ -152,5 +159,5 @@ class WasapiLoopbackSource:
     def __del__(self) -> None:  # pragma: no cover - best effort
         try:
             self._pa.terminate()
-        except Exception:  # noqa: BLE001
+        except Exception:
             pass

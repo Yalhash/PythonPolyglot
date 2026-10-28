@@ -43,7 +43,9 @@ def _windows_build() -> int:
 
 
 class WindowsShield:
-    def __init__(self, user32: Any = None, build: int | None = None, last_error: Any = None) -> None:
+    def __init__(
+        self, user32: Any = None, build: int | None = None, last_error: Any = None
+    ) -> None:
         self.build = _windows_build() if build is None else build
         self._user32 = user32
         self._last_error = last_error
@@ -66,18 +68,28 @@ class WindowsShield:
 
     def exclude_from_capture(self, window_id: int) -> ShieldStatus:
         if not self.supported:
-            log.warning("Windows build %d < %d: capture exclusion unsupported", self.build, MIN_BUILD)
+            log.warning(
+                "Windows build %d < %d: capture exclusion unsupported", self.build, MIN_BUILD
+            )
             return ShieldStatus.UNSUPPORTED
         api = self._api()
         if not api.SetWindowDisplayAffinity(window_id, WDA_EXCLUDEFROMCAPTURE):
-            log.warning("SetWindowDisplayAffinity failed for hwnd=%#x (error %d)", window_id, self._get_last_error())
+            log.warning(
+                "SetWindowDisplayAffinity failed for hwnd=%#x (error %d)",
+                window_id,
+                self._get_last_error(),
+            )
             return ShieldStatus.FAILED
         import ctypes
         from ctypes import wintypes
 
         value = wintypes.DWORD(0)
         if not api.GetWindowDisplayAffinity(window_id, ctypes.byref(value)):
-            log.warning("GetWindowDisplayAffinity failed for hwnd=%#x (error %d)", window_id, self._get_last_error())
+            log.warning(
+                "GetWindowDisplayAffinity failed for hwnd=%#x (error %d)",
+                window_id,
+                self._get_last_error(),
+            )
             return ShieldStatus.FAILED
         if value.value != WDA_EXCLUDEFROMCAPTURE:
             log.warning("display affinity for hwnd=%#x reads back as %#x", window_id, value.value)

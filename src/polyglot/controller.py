@@ -122,7 +122,9 @@ class AppController:
             try:
                 self._save(new)
             except OSError as exc:
-                self.bus.publish(StageError("settings", ErrorKind.INTERNAL, f"could not save settings: {exc}"))
+                self.bus.publish(
+                    StageError("settings", ErrorKind.INTERNAL, f"could not save settings: {exc}")
+                )
         if changed & PIPELINE_SECTIONS:
             self.rebuild()
         return changed

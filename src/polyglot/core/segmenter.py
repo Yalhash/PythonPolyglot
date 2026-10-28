@@ -81,7 +81,9 @@ class Segmenter:
         self._cut_window = max(1, _frames(config.force_cut_window_s * 1000))
         self._min_speech_frames = _frames(config.min_utterance_ms)
         self._keep_tail = _frames(config.trailing_silence_keep_ms)
-        self._partial_every = _frames(config.partial_interval_ms) if config.partial_interval_ms else 0
+        self._partial_every = (
+            _frames(config.partial_interval_ms) if config.partial_interval_ms else 0
+        )
         self.reset()
 
     # ------------------------------------------------------------------ state

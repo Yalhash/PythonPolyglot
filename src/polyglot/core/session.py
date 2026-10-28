@@ -57,7 +57,10 @@ class Session:
         earlier = [
             u
             for u in self.ordered()
-            if u.id < utterance_id and u.is_final and u.text and u.status is not UtteranceStatus.FAILED
+            if u.id < utterance_id
+            and u.is_final
+            and u.text
+            and u.status is not UtteranceStatus.FAILED
         ]
         return tuple(earlier[-limit:]) if limit > 0 else ()
 

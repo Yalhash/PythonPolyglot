@@ -77,7 +77,9 @@ def test_presenter_is_qt_free_and_adapter_free() -> None:
 
 @pytest.mark.parametrize("path", modules("ui"), ids=lambda p: p.name)
 def test_ui_does_not_reach_into_adapters(path: Path) -> None:
-    assert not {m for m in imports_of(path) if m.startswith(("polyglot.adapters", "polyglot.wiring"))}
+    assert not {
+        m for m in imports_of(path) if m.startswith(("polyglot.adapters", "polyglot.wiring"))
+    }
 
 
 def test_controller_and_wiring_are_qt_free() -> None:

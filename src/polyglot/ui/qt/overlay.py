@@ -221,7 +221,9 @@ class OverlayWindow(QWidget):
         sl.setSpacing(6)
         self.reply_to = _label("", "ReplyTo")
         self.suggest_message = _label("", "SuggestMessage", selectable=False)
-        self.stale = _label("Newer sentences since. Press Suggest to refresh.", "Stale", selectable=False)
+        self.stale = _label(
+            "Newer sentences since. Press Suggest to refresh.", "Stale", selectable=False
+        )
         self.options_layout = QVBoxLayout()
         self.options_layout.setSpacing(6)
         sl.addWidget(self.reply_to)

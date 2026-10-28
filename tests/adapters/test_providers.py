@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import socket
 import urllib.error
 from typing import Any
 
@@ -36,12 +35,22 @@ class FakeHttp:
 
     def post_json(self, url: str, payload: dict[str, Any], *, headers: dict[str, str] | None = None,
                   params: dict[str, str] | None = None, timeout: float) -> HttpResponse:  # fmt: skip
-        self.requests.append({"url": url, "payload": payload, "headers": headers, "params": params, "timeout": timeout})
+        self.requests.append(
+            {
+                "url": url,
+                "payload": payload,
+                "headers": headers,
+                "params": params,
+                "timeout": timeout,
+            }
+        )
         return self.responses.pop(0)
 
 
 def chat(content: Any, **message: Any) -> HttpResponse:
-    return HttpResponse(200, json.dumps({"choices": [{"message": {"content": content, **message}}]}))
+    return HttpResponse(
+        200, json.dumps({"choices": [{"message": {"content": content, **message}}]})
+    )
 
 
 # ------------------------------------------------------------------ status mapping
@@ -81,14 +90,16 @@ def test_refuses_plain_http() -> None:
 @pytest.mark.parametrize(
     ("raised", "expected"),
     [
-        (socket.timeout("t"), ProviderTimeout),
         (TimeoutError("t"), ProviderTimeout),
-        (urllib.error.URLError(socket.timeout("t")), ProviderTimeout),
+        (TimeoutError("t"), ProviderTimeout),
+        (urllib.error.URLError(TimeoutError("t")), ProviderTimeout),
         (urllib.error.URLError(ConnectionRefusedError("no")), ProviderUnavailable),
         (OSError("reset"), ProviderUnavailable),
     ],
 )
-def test_transport_errors_are_typed(monkeypatch: pytest.MonkeyPatch, raised: Exception, expected: type) -> None:
+def test_transport_errors_are_typed(
+    monkeypatch: pytest.MonkeyPatch, raised: Exception, expected: type
+) -> None:
     def boom(*_a: Any, **_k: Any) -> Any:
         raise raised
 
@@ -104,7 +115,9 @@ def test_http_error_status_is_returned_not_raised(monkeypatch: pytest.MonkeyPatc
         raise urllib.error.HTTPError("https://x", 401, "no", {}, io.BytesIO(b'{"error":"bad key"}'))  # type: ignore[arg-type]
 
     monkeypatch.setattr("urllib.request.urlopen", fail)
-    resp = UrllibHttpClient().post_json("https://example.com", {"a": 1}, params={"k": "v"}, timeout=1)
+    resp = UrllibHttpClient().post_json(
+        "https://example.com", {"a": 1}, params={"k": "v"}, timeout=1
+    )
     assert resp.status == 401 and "bad key" in resp.body
 
 
@@ -124,20 +137,35 @@ def test_success_path_sends_json(monkeypatch: pytest.MonkeyPatch) -> None:
             return None
 
     def fake_urlopen(req: Any, timeout: float) -> Resp:
-        seen.update(url=req.full_url, data=json.loads(req.data), headers=dict(req.header_items()), timeout=timeout)
+        seen.update(
+            url=req.full_url,
+            data=json.loads(req.data),
+            headers=dict(req.header_items()),
+            timeout=timeout,
+        )
         return Resp()
 
     monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
-    resp = UrllibHttpClient().post_json("https://h/x", {"a": 1}, headers={"Authorization": "Bearer k"}, params={"key": "q"}, timeout=2.5)
+    resp = UrllibHttpClient().post_json(
+        "https://h/x",
+        {"a": 1},
+        headers={"Authorization": "Bearer k"},
+        params={"key": "q"},
+        timeout=2.5,
+    )
     assert resp.json() == {"ok": True}
-    assert seen["url"] == "https://h/x?key=q" and seen["data"] == {"a": 1} and seen["timeout"] == 2.5
+    assert (
+        seen["url"] == "https://h/x?key=q" and seen["data"] == {"a": 1} and seen["timeout"] == 2.5
+    )
     assert seen["headers"]["Authorization"] == "Bearer k"
 
 
 # ------------------------------------------------------------------ OpenAI translator
 def test_openai_translate_request_and_result() -> None:
     http = FakeHttp(chat("  Good morning  "))
-    out = OpenAITranslator("sk-test", model="m", http=http).translate("Buenos días", "es", "en", timeout=3)
+    out = OpenAITranslator("sk-test", model="m", http=http).translate(
+        "Buenos días", "es", "en", timeout=3
+    )
     assert out == "Good morning"
     req = http.requests[0]
     assert req["url"] == "https://api.openai.com/v1/chat/completions"
@@ -151,7 +179,13 @@ def test_openai_translate_request_and_result() -> None:
 
 @pytest.mark.parametrize(
     "resp",
-    [chat(""), chat(None), chat("x", refusal="no"), HttpResponse(200, '{"choices": []}'), HttpResponse(200, "{}")],
+    [
+        chat(""),
+        chat(None),
+        chat("x", refusal="no"),
+        HttpResponse(200, '{"choices": []}'),
+        HttpResponse(200, "{}"),
+    ],
 )
 def test_openai_bad_responses(resp: HttpResponse) -> None:
     with pytest.raises(BadResponse):
@@ -160,7 +194,9 @@ def test_openai_bad_responses(resp: HttpResponse) -> None:
 
 def test_openai_auth_error() -> None:
     with pytest.raises(AuthError):
-        OpenAITranslator("k", http=FakeHttp(HttpResponse(401, ""))).translate("hola", None, "en", timeout=1)
+        OpenAITranslator("k", http=FakeHttp(HttpResponse(401, ""))).translate(
+            "hola", None, "en", timeout=1
+        )
 
 
 def test_empty_text_makes_no_request() -> None:
@@ -182,11 +218,15 @@ def test_google_request_uses_text_format_and_codes() -> None:
 
 
 def test_google_without_source_and_bad_body() -> None:
-    http = FakeHttp(HttpResponse(200, json.dumps({"data": {"translations": [{"translatedText": "x"}]}})))
+    http = FakeHttp(
+        HttpResponse(200, json.dumps({"data": {"translations": [{"translatedText": "x"}]}}))
+    )
     GoogleTranslator("k", http=http).translate("hola", None, "en", timeout=1)
     assert "source" not in http.requests[0]["payload"]
     with pytest.raises(BadResponse):
-        GoogleTranslator("k", http=FakeHttp(HttpResponse(200, "{}"))).translate("a", None, "en", timeout=1)
+        GoogleTranslator("k", http=FakeHttp(HttpResponse(200, "{}"))).translate(
+            "a", None, "en", timeout=1
+        )
 
 
 # ------------------------------------------------------------------ Suggester
@@ -219,7 +259,14 @@ def test_suggester_uses_structured_output_and_context() -> None:
 
 
 @pytest.mark.parametrize(
-    "content", ["not json", "{}", '{"options": [{"source_text": "x"}]}', '{"options": []}', '{"options": [{"source_text": "", "user_text": "y"}]}']
+    "content",
+    [
+        "not json",
+        "{}",
+        '{"options": [{"source_text": "x"}]}',
+        '{"options": []}',
+        '{"options": [{"source_text": "", "user_text": "y"}]}',
+    ],
 )
 def test_suggester_rejects_malformed_output(content: str) -> None:
     with pytest.raises(BadResponse):

@@ -90,7 +90,14 @@ def list_input_devices() -> list[dict[str, Any]]:
                     "rate": int(dev["default_samplerate"]),
                     "virtual": any(
                         k in name.lower()
-                        for k in ("blackhole", "vb-audio", "cable", "voicemeeter", "loopback", "soundflower")
+                        for k in (
+                            "blackhole",
+                            "vb-audio",
+                            "cable",
+                            "voicemeeter",
+                            "loopback",
+                            "soundflower",
+                        )
                     ),
                 }
             )

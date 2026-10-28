@@ -31,7 +31,7 @@ def speech_wav(tmp_path_factory: pytest.TempPathFactory) -> Path:
     if exe is None:
         pytest.skip("espeak-ng is not installed")
     out = tmp_path_factory.mktemp("speech") / "speech.wav"
-    subprocess.run([exe, "-w", str(out), SENTENCE], check=True, capture_output=True)  # noqa: S603
+    subprocess.run([exe, "-w", str(out), SENTENCE], check=True, capture_output=True)
     # Pad with silence so the utterance can end before the file does.
     data, rate = read_wav(out)
     from polyglot.adapters.audio.playback import write_wav
@@ -50,7 +50,10 @@ def test_silero_detects_synthesized_speech(speech_wav: Path) -> None:
     r = make_resampler(rate)
     audio = np.concatenate((r.process(data), r.flush()))
     vad = SileroVad()
-    probs = [vad.speech_prob(audio[i : i + FRAME_SAMPLES]) for i in range(0, audio.size - FRAME_SAMPLES, FRAME_SAMPLES)]
+    probs = [
+        vad.speech_prob(audio[i : i + FRAME_SAMPLES])
+        for i in range(0, audio.size - FRAME_SAMPLES, FRAME_SAMPLES)
+    ]
     assert max(probs) > 0.5
     assert min(probs[:5]) < 0.2  # the leading silence
 

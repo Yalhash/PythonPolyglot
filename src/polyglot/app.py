@@ -183,7 +183,9 @@ def run_gui(config_path: Path | None, *, demo: bool = False) -> int:
         presenter.view.set_status(presenter_status_error(config_error))
     controller.ensure_built()
     refresh_flags()
-    presenter.view.set_language(presenter.language_label(config.asr.language, config.asr.language is not None))
+    presenter.view.set_language(
+        presenter.language_label(config.asr.language, config.asr.language is not None)
+    )
     return int(app.exec())
 
 

@@ -60,9 +60,8 @@ def build_messages(ctx: SuggestionContext) -> list[dict[str, str]]:
         "do not know, keep it general."
     )
     user = (
-        (f"Earlier in the conversation:\n{history}\n\n" if history else "")
-        + f"They just said:\n{target}"
-    )
+        f"Earlier in the conversation:\n{history}\n\n" if history else ""
+    ) + f"They just said:\n{target}"
     return [{"role": "system", "content": system}, {"role": "user", "content": user}]
 
 

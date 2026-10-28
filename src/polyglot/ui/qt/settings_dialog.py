@@ -109,10 +109,13 @@ class SettingsDialog(QDialog):
         try:
             devices = list_devices()
             error = ""
-        except Exception as exc:  # noqa: BLE001 - shown to the user
+        except Exception as exc:
             devices, error = [], str(exc)
         items: list[tuple[str, Any]] = [("Default input", None)]
-        items += [(f"{d['name']}{'  (virtual)' if d.get('virtual') else ''}", str(d["id"])) for d in devices]
+        items += [
+            (f"{d['name']}{'  (virtual)' if d.get('virtual') else ''}", str(d["id"]))
+            for d in devices
+        ]
         self.device = _combo(items, a.device)
         self.file = QLineEdit(a.file or "")
         browse = QPushButton("Browse…")
@@ -137,9 +140,13 @@ class SettingsDialog(QDialog):
         w, form = QWidget(), QFormLayout()
         w.setLayout(form)
         self.model = _combo([(m, m) for m in WHISPER_MODELS], s.model)
-        self.asr_device = _combo([("Automatic", "auto"), ("CPU", "cpu"), ("NVIDIA GPU (CUDA)", "cuda")], s.device)
+        self.asr_device = _combo(
+            [("Automatic", "auto"), ("CPU", "cpu"), ("NVIDIA GPU (CUDA)", "cuda")], s.device
+        )
         self.source_lang = _combo(_language_items(with_auto=True), s.language)
-        self.vad_engine = _combo([("Silero (recommended)", "silero"), ("Energy (simple)", "energy")], v.engine)
+        self.vad_engine = _combo(
+            [("Silero (recommended)", "silero"), ("Energy (simple)", "energy")], v.engine
+        )
         self.end_silence = _spin(100, 5000, v.end_silence_ms, " ms")
         self.partials = QCheckBox("Show text while the speaker is still talking")
         self.partials.setChecked(v.partial_interval_ms > 0)
@@ -157,7 +164,9 @@ class SettingsDialog(QDialog):
         w.setLayout(form)
         self.translate_on = QCheckBox("Translate (sends transcribed text to the provider)")
         self.translate_on.setChecked(t.enabled)
-        self.provider = _combo([("OpenAI", "openai"), ("Google Cloud Translation", "google")], t.provider)
+        self.provider = _combo(
+            [("OpenAI", "openai"), ("Google Cloud Translation", "google")], t.provider
+        )
         self.target = _combo(_language_items(with_auto=False), t.target_language)
         self.translate_model = QLineEdit(t.model)
         self.openai_key = self._key_field(Secrets.OPENAI)
@@ -185,7 +194,8 @@ class SettingsDialog(QDialog):
         self.suggest_on.setChecked(s.enabled)
         self.suggest_model = QLineEdit(s.model)
         self.conversation = _combo(
-            [("Meeting", "meeting"), ("Interview", "interview"), ("Casual", "casual")], s.conversation_type
+            [("Meeting", "meeting"), ("Interview", "interview"), ("Casual", "casual")],
+            s.conversation_type,
         )
         self.option_count = _spin(1, 3, s.options)
         form.addRow("", self.suggest_on)
@@ -222,7 +232,9 @@ class SettingsDialog(QDialog):
         c["vad"].update(
             engine=self.vad_engine.currentData(),
             end_silence_ms=self.end_silence.value(),
-            partial_interval_ms=(c["vad"]["partial_interval_ms"] or 1000) if self.partials.isChecked() else 0,
+            partial_interval_ms=(c["vad"]["partial_interval_ms"] or 1000)
+            if self.partials.isChecked()
+            else 0,
         )
         c["translation"].update(enabled=self.translate_on.isChecked(), provider=self.provider.currentData(),
                                 target_language=self.target.currentData(),
@@ -244,7 +256,7 @@ class SettingsDialog(QDialog):
             if field.text().strip():
                 try:
                     self._secrets.set(name, field.text().strip())
-                except Exception as exc:  # noqa: BLE001 - keyring backends raise many types
+                except Exception as exc:
                     QMessageBox.warning(self, "Could not store key", f"{name}: {exc}")
                     return
                 self.keys_changed = True

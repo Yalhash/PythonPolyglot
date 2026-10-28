@@ -48,7 +48,7 @@ def junit(path: str) -> int:
             node = case.find(tag)
             if node is None:
                 continue
-            file = (case.get("file") or case.get("classname", "").replace(".", "/") + ".py")
+            file = case.get("file") or case.get("classname", "").replace(".", "/") + ".py"
             text = (node.get("message") or "") + "\n" + (node.text or "")
             groups[file].append((int(case.get("line") or 1), f"{case.get('name')}: {text[-3000:]}"))
     return emit(groups, "test failures")

@@ -79,14 +79,18 @@ def test_language_locks_and_is_passed_to_whisper(make_pipeline: Any, recorder: R
 def test_same_language_is_not_translated(make_pipeline: Any, recorder: Recorder) -> None:
     tr = EchoTranslator()
     p = make_pipeline(
-        utterances_audio(2), transcriber=ScriptedTranscriber(["hi", "there"], language="en"), translator=tr
+        utterances_audio(2),
+        transcriber=ScriptedTranscriber(["hi", "there"], language="en"),
+        translator=tr,
     )
     run_to_end(p)
     assert tr.calls == []
     assert all(u.status is UtteranceStatus.FINAL for u in recorder.finals())
 
 
-def test_retryable_translation_error_is_retried_once(make_pipeline: Any, recorder: Recorder) -> None:
+def test_retryable_translation_error_is_retried_once(
+    make_pipeline: Any, recorder: Recorder
+) -> None:
     class Flaky(EchoTranslator):
         def __init__(self) -> None:
             super().__init__()
@@ -107,7 +111,9 @@ def test_retryable_translation_error_is_retried_once(make_pipeline: Any, recorde
     assert len(tr.calls) == 2
 
 
-def test_non_retryable_translation_error_shows_on_the_row(make_pipeline: Any, recorder: Recorder) -> None:
+def test_non_retryable_translation_error_shows_on_the_row(
+    make_pipeline: Any, recorder: Recorder
+) -> None:
     tr = EchoTranslator(errors={"hola": AuthError("bad key")})
     p = make_pipeline(utterances_audio(1), transcriber=ScriptedTranscriber(["hola"]), translator=tr)
     run_to_end(p)
@@ -166,9 +172,13 @@ def test_suggestion_not_configured(make_pipeline: Any, recorder: Recorder) -> No
     assert recorder.of(StageError)[0].kind is ErrorKind.NOT_CONFIGURED
 
 
-def test_suggestion_targets_latest_final_with_history(make_pipeline: Any, recorder: Recorder) -> None:
+def test_suggestion_targets_latest_final_with_history(
+    make_pipeline: Any, recorder: Recorder
+) -> None:
     sug = CannedSuggester()
-    p = make_pipeline(utterances_audio(3), transcriber=ScriptedTranscriber(TEXTS[:3]), suggester=sug)
+    p = make_pipeline(
+        utterances_audio(3), transcriber=ScriptedTranscriber(TEXTS[:3]), suggester=sug
+    )
     run_to_end(p)
     p.request_suggestion()
     assert wait_for(lambda: recorder.of(SuggestionsReady))
@@ -220,7 +230,9 @@ def test_late_suggestion_is_still_shown_linked_to_its_sentence(
 
     src = TwoPart()
     sug = CannedSuggester(delay_s=0.6)
-    p = make_pipeline(source=src, transcriber=ScriptedTranscriber(["primera", "segunda"]), suggester=sug)
+    p = make_pipeline(
+        source=src, transcriber=ScriptedTranscriber(["primera", "segunda"]), suggester=sug
+    )
     p.start()
     assert wait_for(lambda: len(recorder.finals()) == 1)
     p.request_suggestion()
@@ -232,7 +244,9 @@ def test_late_suggestion_is_still_shown_linked_to_its_sentence(
     assert "primera" in ready.suggestion.options[0].source_text
 
 
-def test_suggestion_failure_is_reported_not_replaced(make_pipeline: Any, recorder: Recorder) -> None:
+def test_suggestion_failure_is_reported_not_replaced(
+    make_pipeline: Any, recorder: Recorder
+) -> None:
     p = make_pipeline(utterances_audio(1), suggester=CannedSuggester(error=AuthError("nope")))
     run_to_end(p)
     p.request_suggestion()
@@ -396,10 +410,14 @@ def test_status_sequence(make_pipeline: Any, recorder: Recorder) -> None:
 
 
 @pytest.mark.parametrize("partial_ms", [320])
-def test_partials_flow_then_final_overrides(make_pipeline: Any, recorder: Recorder, partial_ms: int) -> None:
+def test_partials_flow_then_final_overrides(
+    make_pipeline: Any, recorder: Recorder, partial_ms: int
+) -> None:
     from polyglot.core.segmenter import SegmenterConfig
 
-    cfg = PipelineConfig(ring_seconds=600, segmenter=SegmenterConfig(partial_interval_ms=partial_ms))
+    cfg = PipelineConfig(
+        ring_seconds=600, segmenter=SegmenterConfig(partial_interval_ms=partial_ms)
+    )
     asr = ScriptedTranscriber(lambda audio: f"{len(audio)} samples")
     p = make_pipeline(utterances_audio(1, speech_s=2.0), transcriber=asr, config=cfg)
     run_to_end(p)
@@ -408,5 +426,9 @@ def test_partials_flow_then_final_overrides(make_pipeline: Any, recorder: Record
     statuses = [e.utterance.status for e in recorder.of(UtteranceUpdated)]
     assert UtteranceStatus.PARTIAL in statuses
     assert statuses[-1] is UtteranceStatus.FINAL
-    versions = [e.utterance.partial_version for e in recorder.of(UtteranceUpdated) if e.utterance.status is UtteranceStatus.PARTIAL]
+    versions = [
+        e.utterance.partial_version
+        for e in recorder.of(UtteranceUpdated)
+        if e.utterance.status is UtteranceStatus.PARTIAL
+    ]
     assert versions == sorted(versions)

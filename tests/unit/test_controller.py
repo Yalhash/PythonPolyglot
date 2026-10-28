@@ -48,13 +48,21 @@ class FakeBuilder:
         return Built(p, ["a warning"], translation_enabled=True)  # type: ignore[arg-type]
 
 
-def make(builder: FakeBuilder | None = None) -> tuple[AppController, FakeBuilder, list[AppConfig], list[Any]]:
+def make(
+    builder: FakeBuilder | None = None,
+) -> tuple[AppController, FakeBuilder, list[AppConfig], list[Any]]:
     builder = builder or FakeBuilder()
     saved: list[AppConfig] = []
     bus = EventBus()
     events: list[Any] = []
     bus.subscribe(events.append)
-    c = AppController(AppConfig(), Secrets(MemorySecretStore(), environ={}), bus, builder=builder, save=saved.append)
+    c = AppController(
+        AppConfig(),
+        Secrets(MemorySecretStore(), environ={}),
+        bus,
+        builder=builder,
+        save=saved.append,
+    )
     return c, builder, saved, events
 
 

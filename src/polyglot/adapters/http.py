@@ -65,19 +65,19 @@ class UrllibHttpClient:
         if not url.startswith("https://"):
             raise ProviderError("refusing to send a request over plain HTTP", retryable=False)
         data = json.dumps(payload).encode("utf-8")
-        req = urllib.request.Request(  # noqa: S310 - scheme checked above
+        req = urllib.request.Request(
             url,
             data=data,
             method="POST",
             headers={"Content-Type": "application/json", **(headers or {})},
         )
         try:
-            with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
                 return HttpResponse(resp.status, resp.read().decode("utf-8", "replace"))
         except urllib.error.HTTPError as exc:
             body = exc.read().decode("utf-8", "replace") if exc.fp else ""
             return HttpResponse(exc.code, body)
-        except (TimeoutError, socket.timeout) as exc:
+        except TimeoutError as exc:
             raise ProviderTimeout(f"no response within {timeout:.1f}s") from exc
         except urllib.error.URLError as exc:
             if isinstance(exc.reason, (TimeoutError, socket.timeout)):
@@ -102,4 +102,6 @@ def raise_for_status(resp: HttpResponse, provider: str) -> None:
         raise ProviderUnavailable(f"{provider} rate limited (HTTP 429)")
     if resp.status in (408, 409) or resp.status >= 500:
         raise ProviderUnavailable(f"{provider} unavailable (HTTP {resp.status})")
-    raise ProviderError(f"{provider} request failed (HTTP {resp.status}): {detail}", retryable=False)
+    raise ProviderError(
+        f"{provider} request failed (HTTP {resp.status}): {detail}", retryable=False
+    )

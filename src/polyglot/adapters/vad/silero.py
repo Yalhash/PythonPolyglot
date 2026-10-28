@@ -47,8 +47,10 @@ class SileroVad:
         errors: list[str] = []
         for path in candidates:
             try:
-                sess = ort.InferenceSession(str(path), sess_options=opts, providers=["CPUExecutionProvider"])
-            except Exception as exc:  # noqa: BLE001 - try the next candidate
+                sess = ort.InferenceSession(
+                    str(path), sess_options=opts, providers=["CPUExecutionProvider"]
+                )
+            except Exception as exc:
                 errors.append(f"{path.name}: {exc}")
                 continue
             mode = self._detect(sess)

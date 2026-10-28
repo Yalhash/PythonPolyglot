@@ -110,7 +110,7 @@ class Presenter:
     _state: PipelineState = PipelineState.STOPPED
 
     # ------------------------------------------------------------ events in
-    def handle(self, event: Event) -> None:  # noqa: PLR0912 - flat dispatch
+    def handle(self, event: Event) -> None:
         if isinstance(event, UtteranceUpdated):
             self._on_utterance(event.utterance)
         elif isinstance(event, UtteranceDiscarded):
@@ -118,7 +118,9 @@ class Presenter:
             self.view.remove_row(event.utterance_id)
         elif isinstance(event, SuggestionStarted):
             self.suggestion_for = event.utterance_id
-            self._show_suggestion(SuggestionVM(reply_to=self._text(event.utterance_id), loading=True))
+            self._show_suggestion(
+                SuggestionVM(reply_to=self._text(event.utterance_id), loading=True)
+            )
         elif isinstance(event, SuggestionsReady):
             s = event.suggestion
             self.suggestion_for = s.utterance_id

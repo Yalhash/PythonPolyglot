@@ -46,7 +46,7 @@ def list_devices() -> int:
 
 
 def run_headless(config_path: Path | None, wav: Path | None, *, demo: bool, fast: bool) -> int:
-    from polyglot.adapters.secrets import KeyringSecretStore, MemorySecretStore
+    from polyglot.adapters.secrets import KeyringSecretStore
     from polyglot.config import Secrets, load_config
     from polyglot.core.errors import PolyglotError
     from polyglot.core.events import (
@@ -62,13 +62,19 @@ def run_headless(config_path: Path | None, wav: Path | None, *, demo: bool, fast
 
     cfg = load_config(config_path)
     if wav is not None:
-        cfg = cfg.model_copy(update={"audio": cfg.audio.model_copy(update={"source": "file", "file": str(wav)})})
+        cfg = cfg.model_copy(
+            update={"audio": cfg.audio.model_copy(update={"source": "file", "file": str(wav)})}
+        )
     bus = EventBus()
 
     def show(ev: Event) -> None:
         if isinstance(ev, UtteranceUpdated):
             u = ev.utterance
-            if u.status in (UtteranceStatus.FINAL, UtteranceStatus.TRANSLATED, UtteranceStatus.FAILED):
+            if u.status in (
+                UtteranceStatus.FINAL,
+                UtteranceStatus.TRANSLATED,
+                UtteranceStatus.FAILED,
+            ):
                 extra = f"  ->  {u.translation}" if u.translation else ""
                 err = f"  [{u.error.value}]" if u.error else ""
                 print(f"#{u.id} ({u.source_lang or '?'}) {u.text}{extra}{err}", flush=True)
@@ -90,7 +96,9 @@ def run_headless(config_path: Path | None, wav: Path | None, *, demo: bool, fast
 
                 source = WavFileSource(wav, realtime=False)
                 ring = min(600.0, source.duration_s + 5)
-                cfg = cfg.model_copy(update={"audio": cfg.audio.model_copy(update={"ring_seconds": ring})})
+                cfg = cfg.model_copy(
+                    update={"audio": cfg.audio.model_copy(update={"ring_seconds": ring})}
+                )
             built = build(cfg, secrets, bus, source=source)
     except PolyglotError as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -116,7 +124,9 @@ def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     from polyglot import config, logging_setup
 
-    logging_setup.configure(args.log_level, None if args.headless else config.log_dir() / "polyglot.log")
+    logging_setup.configure(
+        args.log_level, None if args.headless else config.log_dir() / "polyglot.log"
+    )
     if args.list_devices:
         return list_devices()
     if args.headless or args.file:

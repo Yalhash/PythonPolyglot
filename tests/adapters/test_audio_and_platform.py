@@ -51,8 +51,12 @@ def test_wav_round_trip_16bit(tmp_path: Path) -> None:
     np.testing.assert_allclose(back, data, atol=1 / 32767 + 1e-6)
 
 
-@pytest.mark.parametrize(("width", "dtype", "scale", "offset"), [(1, np.uint8, 127, 128), (4, "<i4", 2**31 - 1, 0)])
-def test_wav_other_widths_and_stereo(tmp_path: Path, width: int, dtype: Any, scale: int, offset: int) -> None:
+@pytest.mark.parametrize(
+    ("width", "dtype", "scale", "offset"), [(1, np.uint8, 127, 128), (4, "<i4", 2**31 - 1, 0)]
+)
+def test_wav_other_widths_and_stereo(
+    tmp_path: Path, width: int, dtype: Any, scale: int, offset: int
+) -> None:
     path = tmp_path / "s.wav"
     frames = np.array([[0.5, -0.5], [0.25, 0.0]], dtype=np.float64)
     ints = (frames * scale + offset).astype(dtype)
@@ -134,7 +138,9 @@ def test_soxr_resampler_streams_48k_to_16k() -> None:
     pytest.importorskip("soxr")
     r = make_resampler(48000)
     sig = tone(1.0, freq=440, rate=48000)
-    out = np.concatenate([r.process(sig[i : i + 960]) for i in range(0, sig.size, 960)] + [r.flush()])
+    out = np.concatenate(
+        [r.process(sig[i : i + 960]) for i in range(0, sig.size, 960)] + [r.flush()]
+    )
     assert abs(out.size - 16000) <= 16
     crossings = np.count_nonzero(np.diff(np.signbit(out[100:-100])))
     assert crossings == pytest.approx(2 * 440 * (out.size - 200) / 16000, rel=0.02)
@@ -142,7 +148,10 @@ def test_soxr_resampler_streams_48k_to_16k() -> None:
 
 # ------------------------------------------------------------------ VAD
 def frames(audio: np.ndarray) -> list[np.ndarray]:
-    return [audio[i : i + FRAME_SAMPLES] for i in range(0, audio.size - FRAME_SAMPLES + 1, FRAME_SAMPLES)]
+    return [
+        audio[i : i + FRAME_SAMPLES]
+        for i in range(0, audio.size - FRAME_SAMPLES + 1, FRAME_SAMPLES)
+    ]
 
 
 def test_energy_vad_separates_tone_from_silence_and_adapts() -> None:
@@ -208,13 +217,26 @@ def test_shield_hides_on_supported_build() -> None:
 
 def test_shield_skips_old_builds_to_avoid_black_box() -> None:
     api = FakeUser32()
-    assert WindowsShield(user32=api, build=MIN_BUILD - 1).exclude_from_capture(1) is ShieldStatus.UNSUPPORTED
+    assert (
+        WindowsShield(user32=api, build=MIN_BUILD - 1).exclude_from_capture(1)
+        is ShieldStatus.UNSUPPORTED
+    )
     assert api.set_calls == []  # never called: WDA_MONITOR fallback would show a black box
 
 
 def test_shield_reports_failure_and_bad_readback() -> None:
-    assert WindowsShield(user32=FakeUser32(set_ok=False), build=MIN_BUILD, last_error=lambda: 5).exclude_from_capture(1) is ShieldStatus.FAILED
-    assert WindowsShield(user32=FakeUser32(readback=1), build=MIN_BUILD, last_error=lambda: 0).exclude_from_capture(1) is ShieldStatus.FAILED
+    assert (
+        WindowsShield(
+            user32=FakeUser32(set_ok=False), build=MIN_BUILD, last_error=lambda: 5
+        ).exclude_from_capture(1)
+        is ShieldStatus.FAILED
+    )
+    assert (
+        WindowsShield(
+            user32=FakeUser32(readback=1), build=MIN_BUILD, last_error=lambda: 0
+        ).exclude_from_capture(1)
+        is ShieldStatus.FAILED
+    )
 
 
 def test_platform_selection() -> None:
