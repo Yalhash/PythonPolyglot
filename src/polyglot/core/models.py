@@ -80,6 +80,32 @@ class SpeechSegment:
         return self.t_end - self.t_start
 
 
+@dataclass(frozen=True, eq=False)
+class AudioClip:
+    """A short mono recording, e.g. from the microphone test in settings."""
+
+    samples: AudioArray  # float32, shape (frames,)
+    sample_rate: int
+
+    @property
+    def duration(self) -> float:
+        return float(self.samples.shape[0]) / self.sample_rate
+
+    @property
+    def peak(self) -> float:
+        return float(np.max(np.abs(self.samples))) if self.samples.size else 0.0
+
+    def level(self) -> str:
+        """How the recording sounds, judged by its loudest sample: ``"silent"`` (nothing
+        picked up), ``"quiet"``, ``"ok"`` or ``"clipping"`` (too loud, distorted)."""
+        peak = self.peak
+        if peak < 0.01:
+            return "silent"
+        if peak < 0.05:
+            return "quiet"
+        return "clipping" if peak >= 0.98 else "ok"
+
+
 @dataclass(frozen=True)
 class Transcript:
     text: str

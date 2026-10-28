@@ -149,6 +149,12 @@ segmenter is shared:
   continues. The mic is skipped, with a warning, when the main input is the same device,
   and for replayed files.
 
+Settings has a microphone test (`ui/mic_test.py`, Qt-free): record 5 s from the chosen
+device on a worker thread, judge the level (`AudioClip.level()`), play it back. Recording and
+playback come from a `MicTester` injected by the composition root (`SoundDeviceMicTester`),
+so the UI never imports an adapter. It refuses to run while listening, because the playback
+would be captured as the other person.
+
 Known limitation: with speakers instead of headphones the microphone hears the other
 person too, and those lines would be tagged as the user's. There is no echo cancellation or
 cross-stream gating yet.

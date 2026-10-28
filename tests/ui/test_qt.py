@@ -489,12 +489,79 @@ def test_settings_dialog_saves_the_microphone_choice(qtbot: Any) -> None:
     devices = [{"id": 3, "name": "Headset Mic"}, {"id": 5, "name": "Webcam Mic"}]
     dlg = SettingsDialog(AppConfig(), Secrets(MemorySecretStore(), environ={}), lambda: devices)
     qtbot.addWidget(dlg)
-    assert not dlg.user_mic.isChecked() and not dlg.user_device.isEnabled()  # off, picker idle
+    assert not dlg.user_mic.isChecked()
     warning = dlg.findChild(QLabel, "HintWarning")
     assert warning is not None and "headphones" in warning.text().lower()
     dlg.user_mic.setChecked(True)
-    assert dlg.user_device.isEnabled()
     dlg.user_device.setCurrentIndex(dlg.user_device.findData("5"))
     dlg._save()
     assert dlg.result_config is not None
     assert dlg.result_config.audio.user_mic and dlg.result_config.audio.user_device == "5"
+
+
+class FakeMicTester:
+    def __init__(self, peak: float = 0.4) -> None:
+        import numpy as np
+
+        from polyglot.core.models import AudioClip
+
+        samples = np.zeros(1600, dtype=np.float32)
+        samples[0] = peak
+        self.clip = AudioClip(samples, 16_000)
+        self.recorded: list[tuple[Any, float]] = []
+        self.played: list[Any] = []
+
+    def record(self, device: Any, seconds: float) -> Any:
+        self.recorded.append((device, seconds))
+        return self.clip
+
+    def play(self, clip: Any) -> None:
+        self.played.append(clip)
+
+
+def test_microphone_test_button_records_the_chosen_device_and_plays_it_back(qtbot: Any) -> None:
+    from polyglot.ui.qt.settings_dialog import SettingsDialog
+
+    tester = FakeMicTester()
+    devices = [{"id": 3, "name": "Headset Mic"}, {"id": 5, "name": "Webcam Mic"}]
+    dlg = SettingsDialog(
+        AppConfig(),
+        Secrets(MemorySecretStore(), environ={}),
+        lambda: devices,
+        mic_tester=tester,
+    )
+    qtbot.addWidget(dlg)
+    assert dlg.mic_test_button.isEnabled()
+    dlg.user_device.setCurrentIndex(dlg.user_device.findData("5"))  # not saved, still tested
+    dlg.mic_test_button.click()
+    qtbot.waitUntil(lambda: bool(tester.played), timeout=5000)
+    qtbot.waitUntil(lambda: dlg.mic_test_status.text() == "Sounds good.", timeout=5000)
+    assert tester.recorded == [(5, 5.0)] and tester.played == [tester.clip]
+    assert dlg.mic_test_button.isEnabled()  # ready for another go
+
+
+def test_microphone_test_reports_silence_and_refuses_while_listening(qtbot: Any) -> None:
+    from polyglot.ui.mic_test import LISTENING_MESSAGE
+    from polyglot.ui.qt.settings_dialog import SettingsDialog
+
+    secrets = Secrets(MemorySecretStore(), environ={})
+    quiet = FakeMicTester(peak=0.0)
+    dlg = SettingsDialog(AppConfig(), secrets, list, mic_tester=quiet)
+    qtbot.addWidget(dlg)
+    dlg.mic_test_button.click()
+    qtbot.waitUntil(lambda: "No sound" in dlg.mic_test_status.text(), timeout=5000)
+    assert quiet.played == [] and dlg.mic_test_status.property("level") == "warn"
+
+    busy = FakeMicTester()
+    dlg2 = SettingsDialog(AppConfig(), secrets, list, mic_tester=busy, is_listening=lambda: True)
+    qtbot.addWidget(dlg2)
+    dlg2.mic_test_button.click()
+    assert dlg2.mic_test_status.text() == LISTENING_MESSAGE and busy.recorded == []
+
+
+def test_microphone_test_button_is_disabled_without_a_tester(qtbot: Any) -> None:
+    from polyglot.ui.qt.settings_dialog import SettingsDialog
+
+    dlg = SettingsDialog(AppConfig(), Secrets(MemorySecretStore(), environ={}), list)
+    qtbot.addWidget(dlg)
+    assert not dlg.mic_test_button.isEnabled()

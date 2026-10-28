@@ -3,6 +3,7 @@ straight to the secret store and are never part of the config."""
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import threading
 from collections.abc import Callable, Sequence
@@ -33,6 +34,13 @@ from PyQt6.QtWidgets import (
 
 from polyglot.config import AppConfig, Secrets, SuggestionsConfig, TranslationConfig
 from polyglot.core import languages
+from polyglot.ui.mic_test import (
+    LISTENING_MESSAGE,
+    TEST_SECONDS,
+    MicTester,
+    MicTestRunner,
+    MicTestUpdate,
+)
 
 log = logging.getLogger(__name__)
 
@@ -122,6 +130,21 @@ class _ModelLoader(QObject):
             _ModelLoader._alive.discard(self)
 
 
+class _MicTestBridge(QObject):
+    """Carries mic-test updates from the worker thread to the GUI thread as a queued
+    signal. Parented to the dialog, so Qt drops the signal if the dialog is gone."""
+
+    updated = pyqtSignal(object)
+
+
+def _set_level(widget: QWidget, level: str) -> None:
+    widget.setProperty("level", level)
+    style = widget.style()
+    if style is not None:
+        style.unpolish(widget)
+        style.polish(widget)
+
+
 def _language_items(with_auto: bool) -> list[tuple[str, Any]]:
     items: list[tuple[str, Any]] = [("Auto-detect", None)] if with_auto else []
     items += sorted(((languages.name(c), c) for c in languages.known_codes()), key=lambda x: x[0])
@@ -157,12 +180,26 @@ class SettingsDialog(QDialog):
         parent: QWidget | None = None,
         *,
         models: ModelCatalog | None = None,
+        mic_tester: MicTester | None = None,
+        is_listening: Callable[[], bool] | None = None,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("Polyglot settings")
         self.setObjectName("SettingsDialog")
         self._config, self._secrets = config, secrets
         self._catalog = models
+        self._is_listening = is_listening or (lambda: False)
+        self._mic_bridge = _MicTestBridge(self)
+        self._mic_runner: MicTestRunner | None = None
+        if mic_tester is not None:
+
+            def notify(update: MicTestUpdate) -> None:  # runs on the worker thread
+                with contextlib.suppress(RuntimeError):  # the dialog was destroyed mid-test
+                    self._mic_bridge.updated.emit(update)
+
+            self._mic_runner = MicTestRunner(mic_tester, notify)
+            self._mic_bridge.updated.connect(self._on_mic_test)
+            self.finished.connect(self._mic_runner.cancel)
         self._known_models: Sequence[ModelLike] = models.known() if models else ()
         self.result_config: AppConfig | None = None
         self.keys_changed = False
@@ -211,8 +248,16 @@ class SettingsDialog(QDialog):
         )
         mic_items: list[tuple[str, Any]] = [("Default microphone", None), *items[1:]]
         self.user_device = _combo(mic_items, a.user_device)
-        self.user_device.setEnabled(a.user_mic)
-        self.user_mic.toggled.connect(self.user_device.setEnabled)
+        self.mic_test_button = QPushButton(f"Test ({TEST_SECONDS:g} s)")
+        self.mic_test_button.setToolTip("Record a short clip from this microphone and play it back")
+        self.mic_test_button.setEnabled(self._mic_runner is not None)
+        self.mic_test_button.clicked.connect(self._test_microphone)
+        self.mic_test_status = QLabel("")
+        self.mic_test_status.setObjectName("MicTestStatus")
+        self.mic_test_status.setWordWrap(True)
+        mic_row = QHBoxLayout()
+        mic_row.addWidget(self.user_device, 1)
+        mic_row.addWidget(self.mic_test_button)
         self.file = QLineEdit(a.file or "")
         browse = QPushButton("Browse…")
         browse.clicked.connect(self._browse)
@@ -230,10 +275,24 @@ class SettingsDialog(QDialog):
         mic_warning.setWordWrap(True)
         form.addRow("", self.user_mic)
         form.addRow("", mic_warning)
-        form.addRow("My microphone", self.user_device)
+        form.addRow("My microphone", mic_row)
+        form.addRow("", self.mic_test_status)
         if error:
             form.addRow(QLabel(f"Could not list devices: {error}"))
         return w
+
+    def _test_microphone(self) -> None:
+        if self._mic_runner is None:
+            return
+        if self._is_listening():  # the playback would be heard as the other person
+            self._on_mic_test(MicTestUpdate(LISTENING_MESSAGE, "warn"))
+            return
+        self._mic_runner.start(self.user_device.currentData())
+
+    def _on_mic_test(self, update: MicTestUpdate) -> None:
+        self.mic_test_status.setText(update.text)
+        _set_level(self.mic_test_status, update.level)
+        self.mic_test_button.setEnabled(not update.busy)
 
     def _browse(self) -> None:
         path, _ = QFileDialog.getOpenFileName(self, "Choose a WAV file", "", "WAV files (*.wav)")

@@ -38,6 +38,9 @@
 #Translation { color: #8fc1ff; }
 #Note { color: #7d838d; font-size: 8.5pt; }
 #HintWarning { color: #e3b341; font-size: 8.5pt; }
+#MicTestStatus { color: #9aa0aa; font-size: 8.5pt; }
+#MicTestStatus[level="warn"] { color: #e3b341; }
+#MicTestStatus[level="error"] { color: #f0705f; }
 
 #Suggestions { background: #1b1e24; border-top: 1px solid #2c3039; }
 #ReplyTo { color: #9aa0aa; font-size: 9pt; }

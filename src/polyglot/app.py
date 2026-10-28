@@ -51,6 +51,7 @@ def run_gui(config_path: Path | None, *, demo: bool = False) -> int:
     from PyQt6.QtWidgets import QApplication, QMenu, QMessageBox, QSystemTrayIcon
 
     from polyglot import platform
+    from polyglot.adapters.audio.sounddevice_source import SoundDeviceMicTester
     from polyglot.adapters.openai_models import OpenAIModelCatalog
     from polyglot.adapters.secrets import KeyringSecretStore, MemorySecretStore
     from polyglot.ui.presenter import Presenter
@@ -118,11 +119,18 @@ def run_gui(config_path: Path | None, *, demo: bool = False) -> int:
     hotkeys.bind(config.ui.hotkey_suggest, config.ui.hotkey_toggle)
 
     model_catalog = OpenAIModelCatalog()  # caches the account's model list per session
+    mic_tester = SoundDeviceMicTester()
 
     def open_settings() -> None:
         nonlocal shield_filter
         dialog = SettingsDialog(
-            controller.config, secrets, _list_devices, window, models=model_catalog
+            controller.config,
+            secrets,
+            _list_devices,
+            window,
+            models=model_catalog,
+            mic_tester=mic_tester,
+            is_listening=lambda: controller.listening,
         )
         accepted = bool(dialog.exec())
         new, keys_changed = dialog.result_config, dialog.keys_changed

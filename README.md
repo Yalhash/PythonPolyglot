@@ -75,6 +75,10 @@ translated and never replied to. Use headphones: with speakers, the microphone a
 the other person and those lines would be tagged as yours. If the microphone cannot be
 opened you get a warning and listening to the other person carries on.
 
+The **Test** button next to the microphone picker records 5 seconds from the selected device
+and plays them back, then tells you if it was too quiet, too loud, or silent. Stop listening
+first: the playback would otherwise be picked up as the other person's audio.
+
 ### About you
 
 Settings → About you lets suggestions talk about *you*: your name, role, skills, languages,

@@ -7,6 +7,7 @@ import logging
 from typing import Any
 
 from polyglot.core.errors import AudioSourceError
+from polyglot.core.models import AudioClip
 from polyglot.core.ports import AudioSink
 
 log = logging.getLogger(__name__)
@@ -78,6 +79,31 @@ class SoundDeviceSource:
                 self._stream.close()
             finally:
                 self._stream = None
+
+
+class SoundDeviceMicTester:
+    """Record from an input device and play the result on the default output, for the
+    settings dialog's microphone test. Both calls block."""
+
+    def record(self, device: int | str | None, seconds: float) -> AudioClip:
+        sd = _sd()
+        try:
+            rate = int(sd.query_devices(device, kind="input")["default_samplerate"])
+            data = sd.rec(
+                int(seconds * rate), samplerate=rate, channels=1, device=device, dtype="float32"
+            )
+            sd.wait()
+        except (ValueError, sd.PortAudioError) as exc:
+            raise AudioSourceError(f"cannot record from input device {device!r}: {exc}") from exc
+        return AudioClip(data.reshape(-1).astype("float32", copy=True), rate)
+
+    def play(self, clip: AudioClip) -> None:
+        sd = _sd()
+        try:
+            sd.play(clip.samples, clip.sample_rate)
+            sd.wait()
+        except (ValueError, sd.PortAudioError) as exc:
+            raise AudioSourceError(f"cannot play the recording: {exc}") from exc
 
 
 def list_input_devices() -> list[dict[str, Any]]:
