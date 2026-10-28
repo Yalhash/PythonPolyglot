@@ -188,3 +188,5 @@ skipped. Whenever the window is not hidden, the footer says "Visible in screen s
 | Coordinator outlives start/stop | Suggestions and language commands work while not listening |
 | Gap fill in the front end | Loopback delivers nothing during silence; utterances must still end |
 | Suggest requests supersede each other (generation counter) | One request at a time; the newest press wins |
+| OpenAI model per feature, from a built-in list plus the account's live list (`adapters/openai_models.py`) | Model lineups change faster than releases; the dialog gets the list through an injected catalog, so the UI never imports an adapter |
+| Request options chosen per model family, with a one-step fallback on HTTP 400 naming a parameter | Older models take `temperature`; reasoning models reject it and take `reasoning_effort`, whose accepted values differ by family |

@@ -29,12 +29,12 @@ queue_size = 8
 enabled = false
 provider = "openai"
 target_language = "en"
-model = "gpt-4o-mini"
+model = "gpt-4o-mini"  # any OpenAI chat model ID; Settings lists the ones your key can use
 timeout_s = 3.0
 
 [suggestions]
 enabled = false
-model = "gpt-4.1-mini"
+model = "gpt-4.1-mini"  # gpt-4o-mini and gpt-4.1-mini retire 2027-01-14 (replacement: gpt-6-luna)
 timeout_s = 6.0
 conversation_type = "meeting"
 history = 6

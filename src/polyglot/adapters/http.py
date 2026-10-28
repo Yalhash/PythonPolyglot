@@ -50,6 +50,10 @@ class HttpClient(Protocol):
         timeout: float,
     ) -> HttpResponse: ...
 
+    def get_json(
+        self, url: str, *, headers: dict[str, str] | None = None, timeout: float
+    ) -> HttpResponse: ...
+
 
 class UrllibHttpClient:
     def post_json(
@@ -72,6 +76,18 @@ class UrllibHttpClient:
             method="POST",
             headers={"Content-Type": "application/json", **(headers or {})},
         )
+        return self._send(req, timeout)
+
+    def get_json(
+        self, url: str, *, headers: dict[str, str] | None = None, timeout: float
+    ) -> HttpResponse:
+        if not url.startswith("https://"):
+            raise ProviderError("refusing to send a request over plain HTTP", retryable=False)
+        req = urllib.request.Request(url, method="GET", headers=dict(headers or {}))
+        return self._send(req, timeout)
+
+    @staticmethod
+    def _send(req: urllib.request.Request, timeout: float) -> HttpResponse:
         try:
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 return HttpResponse(resp.status, resp.read().decode("utf-8", "replace"))

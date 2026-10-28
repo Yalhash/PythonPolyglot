@@ -51,6 +51,7 @@ def run_gui(config_path: Path | None, *, demo: bool = False) -> int:
     from PyQt6.QtWidgets import QApplication, QMenu, QMessageBox, QSystemTrayIcon
 
     from polyglot import platform
+    from polyglot.adapters.openai_models import OpenAIModelCatalog
     from polyglot.adapters.secrets import KeyringSecretStore, MemorySecretStore
     from polyglot.ui.presenter import Presenter
     from polyglot.ui.qt.bridge import EventBridge
@@ -116,9 +117,13 @@ def run_gui(config_path: Path | None, *, demo: bool = False) -> int:
     hotkeys.toggle_window.connect(window.toggle_visible)
     hotkeys.bind(config.ui.hotkey_suggest, config.ui.hotkey_toggle)
 
+    model_catalog = OpenAIModelCatalog()  # caches the account's model list per session
+
     def open_settings() -> None:
         nonlocal shield_filter
-        dialog = SettingsDialog(controller.config, secrets, _list_devices, window)
+        dialog = SettingsDialog(
+            controller.config, secrets, _list_devices, window, models=model_catalog
+        )
         accepted = bool(dialog.exec())
         new, keys_changed = dialog.result_config, dialog.keys_changed
         dialog.deleteLater()

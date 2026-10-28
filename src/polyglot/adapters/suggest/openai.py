@@ -10,6 +10,7 @@ import json
 from typing import Any
 
 from polyglot.adapters.http import HttpClient, UrllibHttpClient
+from polyglot.adapters.openai_models import chat_options
 from polyglot.adapters.translate.openai import DEFAULT_BASE_URL, chat_text
 from polyglot.core.errors import BadResponse
 from polyglot.core.models import ConversationType, ReplyOption, SuggestionContext
@@ -95,7 +96,8 @@ class OpenAISuggester:
     def suggest(self, context: SuggestionContext, *, timeout: float) -> tuple[ReplyOption, ...]:
         payload = {
             "model": self.model,
-            "temperature": 0.7,
+            # A little reasoning helps replies; more would not fit the 6 s budget.
+            **chat_options(self.model, temperature=0.7, effort="low"),
             "messages": build_messages(context),
             "response_format": {"type": "json_schema", "json_schema": SCHEMA},
         }

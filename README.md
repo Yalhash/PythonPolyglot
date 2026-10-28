@@ -53,6 +53,19 @@ Settings → Translation stores keys in the OS keychain (Windows Credential Mana
 macOS Keychain), never in a file. For development, `POLYGLOT_OPENAI_API_KEY` /
 `OPENAI_API_KEY` and `POLYGLOT_GOOGLE_API_KEY` override the keychain.
 
+### Models
+
+Settings → Translation and Settings → Suggestions each have a model dropdown. It starts
+with a short built-in list and, once an OpenAI key is set, loads the chat models your key
+can actually use (Refresh reloads it). Any model ID can also be typed in. Defaults:
+`gpt-4o-mini` for translation and `gpt-4.1-mini` for suggestions. OpenAI retires both on
+2027-01-14 and names `gpt-6-luna` as the replacement.
+
+Older models get a `temperature`; reasoning models get the lowest `reasoning_effort`
+that fits the job instead (`none` for translation, `low` for suggestions). If a model
+rejects a parameter or value, the request is retried once without it, and that is
+remembered for the session.
+
 ## Configuration
 
 Settings are saved to `config.toml` in your user config directory

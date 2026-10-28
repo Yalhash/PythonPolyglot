@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from polyglot.adapters.http import HttpClient, UrllibHttpClient, raise_for_status
+from polyglot.adapters.openai_models import MEMORY, chat_options, rejected_param
 from polyglot.core import languages
 from polyglot.core.errors import BadResponse
 
 DEFAULT_BASE_URL = "https://api.openai.com/v1"
+
+log = logging.getLogger(__name__)
 
 
 def chat_text(
@@ -20,12 +24,21 @@ def chat_text(
     timeout: float,
     provider: str = "OpenAI",
 ) -> str:
-    resp = http.post_json(
-        f"{base_url.rstrip('/')}/chat/completions",
-        payload,
-        headers={"Authorization": f"Bearer {api_key}"},
-        timeout=timeout,
-    )
+    model = str(payload.get("model", ""))
+    payload = MEMORY.apply(model, payload)
+    for _ in range(4):  # at most a few fallbacks (effort value steps, then dropping it)
+        resp = http.post_json(
+            f"{base_url.rstrip('/')}/chat/completions",
+            payload,
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=timeout,
+        )
+        param = rejected_param(resp)
+        retry = MEMORY.adjust(model, payload, param) if param else None
+        if retry is None:
+            break
+        log.info("%s rejected %s for %s; retrying without it", provider, param, model)
+        payload = retry
     raise_for_status(resp, provider)
     data = resp.json()
     try:
@@ -59,7 +72,8 @@ class OpenAITranslator:
         src = f" from {languages.name(source)}" if source else ""
         payload = {
             "model": self.model,
-            "temperature": 0.2,
+            # Translation must be fast: no reasoning where the model allows it.
+            **chat_options(self.model, temperature=0.2, effort="none"),
             "messages": [
                 {
                     "role": "system",

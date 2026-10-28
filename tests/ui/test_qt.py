@@ -319,6 +319,99 @@ def test_settings_dialog_builds_config_and_stores_keys(qtbot: Any) -> None:
     assert secrets.get(Secrets.OPENAI) == "sk-test" and dlg.keys_changed
 
 
+class FakeModelCatalog:
+    def __init__(self, live: list[str] | None = None, error: str | None = None) -> None:
+        from types import SimpleNamespace
+
+        self._ns = SimpleNamespace
+        self.live, self.error = live or [], error
+        self.fetched: list[str] = []
+        self._cache: dict[str, list[Any]] = {}
+
+    def known(self) -> list[Any]:
+        return [self._ns(id=m, note=f"note {m}") for m in ("gpt-6-luna", "gpt-4o-mini", "gpt-4.1-mini")]
+
+    def cached(self, key: str) -> list[Any] | None:
+        return self._cache.get(key)
+
+    def fetch(self, key: str) -> list[Any]:
+        self.fetched.append(key)
+        if self.error:
+            raise RuntimeError(self.error)
+        models = [self._ns(id=m, note="") for m in self.live]
+        self._cache[key] = models
+        return models
+
+
+def _items(box: Any) -> list[str]:
+    return [box.itemText(i) for i in range(box.count())]
+
+
+def test_model_dropdowns_offer_the_list_and_accept_a_typed_model(qtbot: Any) -> None:
+    from polyglot.ui.qt.settings_dialog import SettingsDialog
+
+    catalog = FakeModelCatalog()
+    dlg = SettingsDialog(
+        AppConfig(), Secrets(MemorySecretStore(), environ={}), list, models=catalog
+    )
+    qtbot.addWidget(dlg)
+    assert _items(dlg.translate_model) == ["gpt-6-luna", "gpt-4o-mini", "gpt-4.1-mini"]
+    assert dlg.translate_model.currentText() == "gpt-4o-mini"  # the default is kept
+    assert dlg.suggest_model.currentText() == "gpt-4.1-mini"
+    assert "API key" in dlg.models_status.text() and catalog.fetched == []  # no key: no call
+    dlg.suggest_model.setCurrentText("gpt-9-preview")  # any model ID can be typed
+    dlg.translate_model.setCurrentIndex(0)
+    dlg._save()
+    assert dlg.result_config is not None
+    assert dlg.result_config.translation.model == "gpt-6-luna"
+    assert dlg.result_config.suggestions.model == "gpt-9-preview"
+
+
+def test_model_dropdowns_load_the_accounts_models_in_the_background(qtbot: Any) -> None:
+    from PyQt6.QtCore import Qt
+
+    from polyglot.ui.qt.settings_dialog import SettingsDialog
+
+    secrets = Secrets(MemorySecretStore(), environ={})
+    secrets.set(Secrets.OPENAI, "sk-test")
+    catalog = FakeModelCatalog(live=["gpt-6-luna", "gpt-6.1-sol"])
+    dlg = SettingsDialog(AppConfig(), secrets, list, models=catalog)
+    qtbot.addWidget(dlg)
+    qtbot.waitUntil(lambda: "2 models" in dlg.models_status.text(), timeout=3000)
+    assert catalog.fetched == ["sk-test"]
+    # The current model is not in the account's list: kept, and marked as such.
+    assert _items(dlg.translate_model) == ["gpt-6-luna", "gpt-6.1-sol", "gpt-4o-mini"]
+    assert dlg.translate_model.currentText() == "gpt-4o-mini"
+    tip = dlg.translate_model.itemData(2, Qt.ItemDataRole.ToolTipRole)
+    assert "Not in your account" in tip
+    assert "gpt-6.1-sol" in _items(dlg.suggest_model)
+    # A second dialog uses the session cache: no second request.
+    dlg2 = SettingsDialog(AppConfig(), secrets, list, models=catalog)
+    qtbot.addWidget(dlg2)
+    assert "2 models" in dlg2.models_status.text() and catalog.fetched == ["sk-test"]
+
+
+def test_model_list_failure_keeps_the_built_in_list(qtbot: Any) -> None:
+    from polyglot.ui.qt.settings_dialog import SettingsDialog
+
+    secrets = Secrets(MemorySecretStore(), environ={})
+    secrets.set(Secrets.OPENAI, "sk-bad")
+    dlg = SettingsDialog(AppConfig(), secrets, list, models=FakeModelCatalog(error="HTTP 401"))
+    qtbot.addWidget(dlg)
+    qtbot.waitUntil(lambda: "Could not load" in dlg.models_status.text(), timeout=3000)
+    assert _items(dlg.translate_model) == ["gpt-6-luna", "gpt-4o-mini", "gpt-4.1-mini"]
+
+
+def test_translation_model_only_applies_to_openai(qtbot: Any) -> None:
+    from polyglot.ui.qt.settings_dialog import SettingsDialog
+
+    dlg = SettingsDialog(AppConfig(), Secrets(MemorySecretStore(), environ={}), list)
+    qtbot.addWidget(dlg)
+    assert dlg.translate_model.isEnabled()
+    dlg.provider.setCurrentIndex(dlg.provider.findData("google"))
+    assert not dlg.translate_model.isEnabled()
+
+
 def test_settings_dialog_survives_device_listing_error(qtbot: Any) -> None:
     from polyglot.ui.qt.settings_dialog import SettingsDialog
 
