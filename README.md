@@ -87,7 +87,7 @@ conversation. Fill it in once; it is saved in `config.toml` (the `[profile]` sec
 used every time. Suggestions also see what was said earlier in the conversation, up to
 `suggestions.history` utterances or `suggestions.history_chars` characters.
 
-Everything in your profile is sent to OpenAI with each suggestion request, so it only has
+Everything in your profile is sent sent to the AI provider with each suggestion request, so it only has
 fields for things you would say out loud to the other person. There is deliberately no field
 for health, politics, religion, money or other private details, and the free-text fields are
 yours to keep clean. Profile edits take effect on the next suggestion with no restart.

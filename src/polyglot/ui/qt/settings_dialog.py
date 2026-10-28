@@ -474,7 +474,7 @@ class SettingsDialog(QDialog):
         p = self._config.profile
         note = QLabel(
             "Replies can use what you share here. It is saved once and kept between runs. "
-            "Everything on this tab is sent to OpenAI with each suggestion request, so share "
+            "Everything on this tab is sent to the AI provider  with each suggestion request, so share "
             "only what you would happily say out loud to the other person: work, skills, "
             "hobbies. Leave out private details such as health, politics, religion or money."
         )

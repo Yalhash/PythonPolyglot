@@ -43,7 +43,7 @@ history = 6          # most utterances of earlier conversation to include
 history_chars = 3000 # soft cap on their total length (the newest is always kept)
 options = 2
 
-# What suggestions may say about you. Saved once, used every time. Sent to OpenAI with each
+# What suggestions may say about you. Saved once, used every time. Sent to the AI provider with each
 # suggestion request: public, shareable details only (no health, politics, religion, money).
 # List fields hold up to 15 items of 120 characters; summary up to 500.
 [profile]
