@@ -89,15 +89,20 @@ jobs:
         shell: bash
         run: uv run mypy | uv run python scripts/ci_annotate.py lines mypy
       - name: Tests
+        id: tests
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         shell: bash
         run: uv run pytest -q --junitxml=junit.xml --cov=polyglot --cov-report=term-missing:skip-covered
+      - name: Real capture shield on Windows
+        if: ${{ runner.os == 'Windows' && !cancelled() && steps.install.outcome == 'success' }}
+        shell: bash
+        run: uv run python scripts/shield_check.py
       - name: Annotate test failures
         if: failure()
         shell: bash
         run: test -f junit.xml && uv run python scripts/ci_annotate.py junit junit.xml || true
       - name: Diagnose a crashed test run
-        if: failure() && hashFiles('junit.xml') == ''
+        if: ${{ failure() && steps.tests.outcome == 'failure' }}
         shell: bash
         run: |
           uv run pytest -v -p no:cacheprovider -o addopts="" -m "not slow" 2>&1 \

@@ -155,7 +155,7 @@ def run_gui(config_path: Path | None, *, demo: bool = False) -> int:
     tray: QSystemTrayIcon | None = None
     if QSystemTrayIcon.isSystemTrayAvailable():
         tray = QSystemTrayIcon(_tray_icon(), app)
-        menu = QMenu()
+        menu = QMenu(window)  # parented: the tray does not own its menu
         menu.addAction("Show / hide", window.toggle_visible)
         menu.addAction("Start / stop listening", presenter.on_start_stop)
         menu.addAction("Suggest replies", presenter.on_suggest)
@@ -172,10 +172,20 @@ def run_gui(config_path: Path | None, *, demo: bool = False) -> int:
         tray.show()
 
     def shutdown() -> None:
+        # Stop everything that could call into Qt from another thread, then tear down
+        # Qt objects in a defined order (not at interpreter exit).
         save_geometry()
         hotkeys.stop()
         controller.shutdown()
         bridge.close()
+        if shield_filter is not None:
+            app.removeEventFilter(shield_filter)
+        if tray is not None:
+            tray.hide()
+            tray.setContextMenu(None)
+            tray.deleteLater()
+        window.hide()
+        window.deleteLater()
 
     app.aboutToQuit.connect(shutdown)
 
