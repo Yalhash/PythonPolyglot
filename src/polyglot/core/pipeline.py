@@ -768,7 +768,11 @@ class Coordinator:
         for u in self.session.ordered():
             if u.status in (UtteranceStatus.LISTENING, UtteranceStatus.PARTIAL):
                 self._publish(
-                    u.evolve(status=UtteranceStatus.FAILED, error=ErrorKind.TRANSCRIPTION, t_end=u.t_start)
+                    u.evolve(
+                        status=UtteranceStatus.FAILED,
+                        error=ErrorKind.TRANSCRIPTION,
+                        t_end=u.t_start,
+                    )
                 )
 
     # ------------------------------------------------------------------ network helpers
@@ -915,7 +919,11 @@ class Pipeline:
                 previous.join(30.0)  # never two ASR workers: wait for the old one
                 if previous.is_alive():
                     self._bus.publish(
-                        StageError("asr", ErrorKind.INTERNAL, "previous transcription still running; try again")
+                        StageError(
+                            "asr",
+                            ErrorKind.INTERNAL,
+                            "previous transcription still running; try again",
+                        )
                     )
                     return
             coord.source_ended.clear()

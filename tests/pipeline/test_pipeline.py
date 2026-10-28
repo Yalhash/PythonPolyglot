@@ -448,10 +448,14 @@ def test_partials_flow_then_final_overrides(
 # Found by an independent review probing start/stop/failure interleavings.
 
 
-def test_model_load_failure_stops_capture_and_keeps_error(make_pipeline: Any, recorder: Recorder) -> None:
+def test_model_load_failure_stops_capture_and_keeps_error(
+    make_pipeline: Any, recorder: Recorder
+) -> None:
     asr = ScriptedTranscriber(load_error=TranscriptionFailed("no model"))
     src = ArraySource(utterances_audio(6), SAMPLE_RATE, realtime=True)
-    p = make_pipeline(source=src, transcriber=asr, config=PipelineConfig(ring_seconds=60, finals_queue_size=1))
+    p = make_pipeline(
+        source=src, transcriber=asr, config=PipelineConfig(ring_seconds=60, finals_queue_size=1)
+    )
     p.start()
     assert wait_for(lambda: not p.running, 5), "capture should stop when the model cannot load"
     assert wait_for(lambda: recorder.of(PipelineStatus)[-1].state is PipelineState.STOPPED, 5)
@@ -462,7 +466,9 @@ def test_model_load_failure_stops_capture_and_keeps_error(make_pipeline: Any, re
     assert all(u.status is not UtteranceStatus.LISTENING for u in recorder.utterances().values())
 
 
-def test_model_loaded_after_stop_does_not_claim_listening(make_pipeline: Any, recorder: Recorder) -> None:
+def test_model_loaded_after_stop_does_not_claim_listening(
+    make_pipeline: Any, recorder: Recorder
+) -> None:
     class SlowLoad(ScriptedTranscriber):
         def load(self) -> None:
             time.sleep(0.5)
