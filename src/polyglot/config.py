@@ -183,9 +183,12 @@ def _read_file(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
     try:
-        return tomllib.loads(path.read_text(encoding="utf-8"))
+        # Typed explicitly: with mypy targeting 3.10, ``tomllib`` is the ``tomli`` fallback,
+        # which is not installed on 3.11+ and so reads as Any.
+        data: dict[str, Any] = tomllib.loads(path.read_text(encoding="utf-8"))
     except (OSError, tomllib.TOMLDecodeError) as exc:
         raise ConfigError(f"cannot read {path}: {exc}") from exc
+    return data
 
 
 def _validate(data: dict[str, Any], path: Path) -> AppConfig:
