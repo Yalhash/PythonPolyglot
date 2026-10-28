@@ -565,3 +565,20 @@ def test_microphone_test_button_is_disabled_without_a_tester(qtbot: Any) -> None
     dlg = SettingsDialog(AppConfig(), Secrets(MemorySecretStore(), environ={}), list)
     qtbot.addWidget(dlg)
     assert not dlg.mic_test_button.isEnabled()
+
+
+def test_debug_settings_live_in_the_audio_tab_under_a_debug_title(qtbot: Any) -> None:
+    from PyQt6.QtWidgets import QTabWidget
+
+    from polyglot.ui.qt.settings_dialog import SettingsDialog
+
+    dlg = SettingsDialog(AppConfig(), Secrets(MemorySecretStore(), environ={}), list)
+    qtbot.addWidget(dlg)
+    audio = dlg.findChild(QTabWidget).widget(0)  # type: ignore[union-attr]
+    assert audio.isAncestorOf(dlg.file) and audio.isAncestorOf(dlg.dump_audio)
+    assert dlg.dump_audio.text() == "Save each sentence's audio"  # no "for debugging"
+    titles = [lbl for lbl in audio.findChildren(QLabel) if lbl.objectName() == "SectionTitle"]
+    assert [t.text() for t in titles] == ["Debug"]
+    dlg.dump_audio.setChecked(True)
+    dlg._save()
+    assert dlg.result_config is not None and dlg.result_config.privacy.dump_audio

@@ -145,6 +145,15 @@ def _set_level(widget: QWidget, level: str) -> None:
         style.polish(widget)
 
 
+def _section_title(text: str) -> QLabel:
+    label = QLabel(text)
+    label.setObjectName("SectionTitle")
+    font = label.font()
+    font.setBold(True)
+    label.setFont(font)
+    return label
+
+
 def _language_items(with_auto: bool) -> list[tuple[str, Any]]:
     items: list[tuple[str, Any]] = [("Auto-detect", None)] if with_auto else []
     items += sorted(((languages.name(c), c) for c in languages.known_codes()), key=lambda x: x[0])
@@ -258,27 +267,31 @@ class SettingsDialog(QDialog):
         mic_row = QHBoxLayout()
         mic_row.addWidget(self.user_device, 1)
         mic_row.addWidget(self.mic_test_button)
+        self.dump_audio = QCheckBox("Save each sentence's audio")
+        self.dump_audio.setChecked(self._config.privacy.dump_audio)
         self.file = QLineEdit(a.file or "")
         browse = QPushButton("Browse…")
         browse.clicked.connect(self._browse)
         row = QHBoxLayout()
         row.addWidget(self.file)
         row.addWidget(browse)
-        form.addRow("Listen to", self.source)
-        form.addRow("Input device", self.device)
-        form.addRow("WAV file", row)
         mic_warning = QLabel(
             "Use headphones. Speakers cause audio feedback: the microphone would pick up "
             "the other person's voice and treat it as yours."
         )
         mic_warning.setObjectName("HintWarning")
         mic_warning.setWordWrap(True)
+        form.addRow("Listen to", self.source)
+        form.addRow("Input device", self.device)
         form.addRow("", self.user_mic)
         form.addRow("", mic_warning)
         form.addRow("My microphone", mic_row)
         form.addRow("", self.mic_test_status)
         if error:
             form.addRow(QLabel(f"Could not list devices: {error}"))
+        form.addRow(_section_title("Debug"))
+        form.addRow("WAV file", row)
+        form.addRow("", self.dump_audio)
         return w
 
     def _test_microphone(self) -> None:
@@ -506,7 +519,7 @@ class SettingsDialog(QDialog):
         return w
 
     def _window_tab(self) -> QWidget:
-        u, p = self._config.ui, self._config.privacy
+        u = self._config.ui
         w, form = QWidget(), QFormLayout()
         w.setLayout(form)
         self.opacity = _dspin(0.2, 1.0, u.opacity, 0.05)
@@ -514,13 +527,10 @@ class SettingsDialog(QDialog):
         self.hide_capture.setChecked(u.hide_from_capture)
         self.hotkey_suggest = QLineEdit(u.hotkey_suggest)
         self.hotkey_toggle = QLineEdit(u.hotkey_toggle)
-        self.dump_audio = QCheckBox("Save each sentence's audio for debugging")
-        self.dump_audio.setChecked(p.dump_audio)
         form.addRow("Opacity", self.opacity)
         form.addRow("", self.hide_capture)
         form.addRow("Suggest hotkey", self.hotkey_suggest)
         form.addRow("Show/hide hotkey", self.hotkey_toggle)
-        form.addRow("", self.dump_audio)
         return w
 
     # ------------------------------------------------------------ save
