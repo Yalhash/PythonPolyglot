@@ -11,8 +11,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from polyglot.config import AppConfig, Secrets, load_config, save_config
-from polyglot.controller import AppController
+from polyglot.config import AppConfig, ConfigStore, Secrets
+from polyglot.controller import PIPELINE_SECTIONS, AppController
 from polyglot.core.errors import ConfigError
 from polyglot.core.events import EventBus
 
@@ -64,12 +64,15 @@ def run_gui(config_path: Path | None, *, demo: bool = False) -> int:
     app.setApplicationName("Polyglot")
     app.setQuitOnLastWindowClosed(False)
 
+    _install_excepthook()
+
+    store = ConfigStore(config_path)
     config_error = ""
     try:
-        config = load_config(config_path)
+        config = store.load()
     except ConfigError as exc:
         config_error = str(exc)
-        config = AppConfig()
+        config = AppConfig()  # run on defaults; store.save() refuses, so the file is kept
 
     secrets = Secrets(MemorySecretStore() if demo else KeyringSecretStore())
     bus = EventBus()
@@ -78,7 +81,7 @@ def run_gui(config_path: Path | None, *, demo: bool = False) -> int:
         secrets,
         bus,
         demo=demo,
-        save=None if demo else (lambda c: save_config(c, config_path)),
+        save=None if demo else store.save,
     )
 
     window = OverlayWindow(config.ui)
@@ -99,7 +102,11 @@ def run_gui(config_path: Path | None, *, demo: bool = False) -> int:
         presenter.translation_enabled = bool(built and built.translation_enabled)
 
     # View intents -> presenter -> controller.
-    window.start_stop_clicked.connect(presenter.on_start_stop)
+    def start_stop() -> None:
+        presenter.on_start_stop()
+        refresh_flags()  # the first successful build may happen here
+
+    window.start_stop_clicked.connect(start_stop)
     window.suggest_clicked.connect(presenter.on_suggest)
     window.clear_clicked.connect(presenter.on_clear)
     window.language_clicked.connect(presenter.on_unlock_language)
@@ -112,11 +119,13 @@ def run_gui(config_path: Path | None, *, demo: bool = False) -> int:
     def open_settings() -> None:
         nonlocal shield_filter
         dialog = SettingsDialog(controller.config, secrets, _list_devices, window)
-        if dialog.exec() and dialog.result_config is not None:
-            new = dialog.result_config
+        accepted = bool(dialog.exec())
+        new, keys_changed = dialog.result_config, dialog.keys_changed
+        dialog.deleteLater()
+        if accepted and new is not None:
             changed = controller.apply_config(new)
-            if dialog.keys_changed and not (changed & {"translation", "suggestions"}):
-                controller.rebuild()
+            if keys_changed and not (changed & PIPELINE_SECTIONS):
+                controller.rebuild()  # new API keys take effect now
             refresh_flags()
             presenter.on_user_language(new.translation.target_language)
             window.setWindowOpacity(new.ui.opacity)
@@ -127,7 +136,7 @@ def run_gui(config_path: Path | None, *, demo: bool = False) -> int:
                 app.installEventFilter(shield_filter)
                 shield_filter.shield_widget(window)
             elif not new.ui.hide_from_capture and shield_filter is not None:
-                presenter.on_shield_status(None)
+                # Windows stay hidden (and the footer says so) until restart.
                 QMessageBox.information(
                     window,
                     "Restart needed",
@@ -203,6 +212,16 @@ def run_gui(config_path: Path | None, *, demo: bool = False) -> int:
         presenter.language_label(config.asr.language, config.asr.language is not None)
     )
     return int(app.exec())
+
+
+def _install_excepthook() -> None:
+    """PyQt aborts the process on an exception escaping a slot unless an excepthook is
+    installed. Log it and keep running instead."""
+
+    def hook(exc_type: Any, exc: BaseException, tb: Any) -> None:
+        log.critical("unhandled error", exc_info=(exc_type, exc, tb))
+
+    sys.excepthook = hook
 
 
 def presenter_status_error(message: str) -> Any:

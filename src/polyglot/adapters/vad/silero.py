@@ -35,7 +35,11 @@ def bundled_model_candidates() -> list[Path]:
     except ImportError:
         return []
     assets = Path(faster_whisper.__file__).parent / "assets"
-    return sorted(assets.glob("silero*.onnx"))
+    found = sorted(assets.glob("silero*.onnx"))
+    # Prefer the known single-model files; anything else (e.g. split encoder/decoder
+    # models) is tried last and must pass a test inference.
+    preferred = ("silero_vad_v6.onnx", "silero_vad.onnx", "silero_vad_v5.onnx")
+    return sorted(found, key=lambda p: (preferred.index(p.name) if p.name in preferred else len(preferred), p.name))
 
 
 def _concrete(shape: Any) -> tuple[int, ...]:
@@ -85,6 +89,7 @@ class SileroVad:
         opts = ort.SessionOptions()
         opts.inter_op_num_threads = 1
         opts.intra_op_num_threads = threads
+        self._sr = np.array(SAMPLE_RATE, dtype=np.int64)
         errors: list[str] = []
         for path in candidates:
             try:
@@ -92,14 +97,16 @@ class SileroVad:
                     str(path), sess_options=opts, providers=["CPUExecutionProvider"]
                 )
                 iface = _Interface(sess)
+                self._sess, self._iface = sess, iface
+                self.reset()
+                self.speech_prob(np.zeros(FRAME_SAMPLES, dtype=np.float32))  # smoke test
             except Exception as exc:
                 errors.append(f"{path.name}: {exc}")
                 continue
-            self._sess, self._iface, self.model_path = sess, iface, path
+            self.model_path = path
             break
         else:
             raise ConfigError("no usable Silero VAD model: " + "; ".join(errors))
-        self._sr = np.array(SAMPLE_RATE, dtype=np.int64)
         log.info("Silero VAD from %s (%s)", self.model_path, self._iface.describe())
         self.reset()
 

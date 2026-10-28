@@ -34,6 +34,7 @@ import numpy as np
 from polyglot.core import languages
 from polyglot.core.errors import PolyglotError, ProviderError
 from polyglot.core.events import (
+    ConversationCleared,
     EventBus,
     LanguageChanged,
     PipelineState,
@@ -758,6 +759,7 @@ class Coordinator:
             self._ignore_upto = max([self._ignore_upto, *known])
             self.session.clear()
             self._suggest_gen += 1
+            self._bus.publish(ConversationCleared(self._ignore_upto))
         else:
             log.warning("unknown command %s", cmd.name)
 
@@ -874,6 +876,7 @@ class Pipeline:
         # conversation: pass the previous pipeline's ``session`` and ``ids``.
         self.session = session or Session(self.cfg.target_language, self.cfg.language_policy)
         self.session.target_language = self.cfg.target_language
+        self.session.policy = self.cfg.language_policy  # lock rules follow the new config
         self.ids = ids or IdSource()
         self._lock = threading.Lock()
         self._running = False

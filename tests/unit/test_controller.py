@@ -37,10 +37,12 @@ class FakePipeline:
 
 class FakeBuilder:
     def __init__(self, fail: bool = False) -> None:
-        self.fail = fail
+        self.fail: bool | Exception = fail
         self.built: list[FakePipeline] = []
 
     def __call__(self, cfg: AppConfig, secrets: Secrets, bus: EventBus, **kw: Any) -> Built:
+        if isinstance(self.fail, Exception):
+            raise self.fail
         if self.fail:
             raise ConfigError("no audio device")
         p = FakePipeline(kw.get("session"), kw.get("ids"))
@@ -129,3 +131,47 @@ def test_shutdown_closes() -> None:
     c.start()
     c.shutdown()
     assert b.built[0].calls[-1] == "close" and c.built is None
+
+
+def test_failed_rebuild_keeps_conversation_for_the_next_build() -> None:
+    c, b, _, events = make()
+    c.start()
+    first = b.built[0]
+    b.fail = ValueError("truncated WAV")  # not a PolyglotError: must still be reported
+    new = c.config.model_copy(deep=True)
+    new.asr.model = "small"
+    c.apply_config(new)  # must not raise
+    assert c.built is None
+    assert any(isinstance(e, StageError) and "truncated" in e.message for e in events)
+    b.fail = False
+    c.start()
+    assert b.built[-1].session is first.session and b.built[-1].ids is first.ids
+    assert "retranslate_pending" in b.built[-1].calls
+
+
+def test_privacy_change_rebuilds_and_language_change_is_applied() -> None:
+    c, b, _, _ = make()
+    c.start()
+    new = c.config.model_copy(deep=True)
+    new.privacy.dump_audio = True
+    c.apply_config(new)
+    assert len(b.built) == 2
+    newer = c.config.model_copy(deep=True)
+    newer.asr.language = "fr"
+    c.apply_config(newer)
+    assert "set_language" in b.built[-1].calls
+
+
+def test_save_failure_is_reported_not_raised() -> None:
+    bus = EventBus()
+    events: list[Any] = []
+    bus.subscribe(events.append)
+
+    def broken_save(_cfg: AppConfig) -> None:
+        raise ConfigError("config file could not be loaded")
+
+    c = AppController(AppConfig(), Secrets(MemorySecretStore(), environ={}), bus, builder=FakeBuilder(), save=broken_save)
+    new = c.config.model_copy(deep=True)
+    new.ui.opacity = 0.5
+    assert c.apply_config(new) == {"ui"}
+    assert any(isinstance(e, StageError) and e.stage == "settings" for e in events)

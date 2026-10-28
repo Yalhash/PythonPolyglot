@@ -81,25 +81,31 @@ def read_wav(path: str | Path) -> tuple[RawAudio, int]:
             raw = wf.readframes(wf.getnframes())
     except (OSError, wave.Error) as exc:
         raise AudioSourceError(f"cannot read WAV file {path}: {exc}") from exc
-    if width == 1:
-        data = (np.frombuffer(raw, dtype=np.uint8).astype(np.float32) - 128.0) / 128.0
-    elif width == 2:
-        data = np.frombuffer(raw, dtype="<i2").astype(np.float32) / 32768.0
-    elif width == 3:
-        b = np.frombuffer(raw, dtype=np.uint8).reshape(-1, 3)
-        ints = (
-            b[:, 0].astype(np.int32)
-            | (b[:, 1].astype(np.int32) << 8)
-            | (b[:, 2].astype(np.int32) << 16)
-        )
-        ints = np.where(ints & 0x800000, ints - 0x1000000, ints)
-        data = ints.astype(np.float32) / 8388608.0
-    elif width == 4:
-        data = np.frombuffer(raw, dtype="<i4").astype(np.float32) / 2147483648.0
-    else:  # pragma: no cover - wave module rejects other widths
-        raise AudioSourceError(f"unsupported sample width {width}")
-    if channels > 1:
-        data = data.reshape(-1, channels)
+    # Truncate a partial last frame (a cut-off recording) instead of failing.
+    frame_bytes = width * channels
+    raw = raw[: len(raw) - len(raw) % frame_bytes] if frame_bytes else raw
+    try:
+        if width == 1:
+            data = (np.frombuffer(raw, dtype=np.uint8).astype(np.float32) - 128.0) / 128.0
+        elif width == 2:
+            data = np.frombuffer(raw, dtype="<i2").astype(np.float32) / 32768.0
+        elif width == 3:
+            b = np.frombuffer(raw, dtype=np.uint8).reshape(-1, 3)
+            ints = (
+                b[:, 0].astype(np.int32)
+                | (b[:, 1].astype(np.int32) << 8)
+                | (b[:, 2].astype(np.int32) << 16)
+            )
+            ints = np.where(ints & 0x800000, ints - 0x1000000, ints)
+            data = ints.astype(np.float32) / 8388608.0
+        elif width == 4:
+            data = np.frombuffer(raw, dtype="<i4").astype(np.float32) / 2147483648.0
+        else:  # pragma: no cover - wave module rejects other widths
+            raise AudioSourceError(f"unsupported sample width {width}")
+        if channels > 1:
+            data = data.reshape(-1, channels)
+    except ValueError as exc:
+        raise AudioSourceError(f"cannot decode WAV file {path}: {exc}") from exc
     return data, rate
 
 

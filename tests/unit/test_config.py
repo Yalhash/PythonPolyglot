@@ -115,3 +115,65 @@ def test_secrets_env_overrides_store() -> None:
     assert s.get(Secrets.GOOGLE) == "g"
     s.set(Secrets.GOOGLE, None)
     assert s.get(Secrets.GOOGLE) is None
+
+
+def test_store_keeps_env_overrides_out_of_the_file(tmp_path: Path) -> None:
+    from polyglot.config import ConfigStore
+
+    path = tmp_path / "config.toml"
+    path.write_text('[asr]\nmodel = "small"\n', encoding="utf-8")
+    store = ConfigStore(path, environ={"POLYGLOT_TRANSLATION__ENABLED": "true", "POLYGLOT_ASR__MODEL": "tiny"})
+    cfg = store.load()
+    assert cfg.translation.enabled and cfg.asr.model == "tiny"
+    cfg.ui.opacity = 0.5  # a real change from the settings dialog
+    store.save(cfg)
+    saved = load_config(path, environ={})
+    assert saved.ui.opacity == 0.5
+    assert saved.translation.enabled is False  # env value not persisted
+    assert saved.asr.model == "small"  # file value kept under the env override
+
+
+def test_store_saves_a_dialog_change_to_an_env_overridden_field(tmp_path: Path) -> None:
+    from polyglot.config import ConfigStore
+
+    path = tmp_path / "config.toml"
+    store = ConfigStore(path, environ={"POLYGLOT_ASR__MODEL": "tiny"})
+    cfg = store.load()
+    cfg.asr.model = "medium"
+    store.save(cfg)
+    assert load_config(path, environ={}).asr.model == "medium"
+
+
+def test_store_refuses_to_overwrite_an_unloadable_file(tmp_path: Path) -> None:
+    from polyglot.config import ConfigStore
+
+    path = tmp_path / "config.toml"
+    path.write_text("[asr]\nbeam_size = 99\n", encoding="utf-8")
+    store = ConfigStore(path, environ={})
+    with pytest.raises(ConfigError):
+        store.load()
+    with pytest.raises(ConfigError):
+        store.save(AppConfig())
+    assert "beam_size = 99" in path.read_text(encoding="utf-8")
+
+
+def test_numeric_device_and_text_env_values(tmp_path: Path) -> None:
+    path = tmp_path / "config.toml"
+    path.write_text("[audio]\ndevice = 3\n", encoding="utf-8")
+    assert load_config(path, environ={}).audio.device == "3"
+    cfg = load_config(tmp_path / "none.toml", environ={"POLYGLOT_AUDIO__DEVICE": "3", "POLYGLOT_UI__OPACITY": "0.5"})
+    assert cfg.audio.device == "3" and cfg.ui.opacity == 0.5
+
+
+def test_toml_escapes_delete_character() -> None:
+    cfg = AppConfig()
+    cfg.ui.hotkey_suggest = "a\x7fb"
+    assert tomllib.loads(to_toml(cfg))["ui"]["hotkey_suggest"] == "a\x7fb"
+
+
+def test_secret_source() -> None:
+    store = MemorySecretStore({Secrets.GOOGLE: "g"})
+    s = Secrets(store, environ={"OPENAI_API_KEY": "e"})
+    assert s.source(Secrets.OPENAI) == "OPENAI_API_KEY"
+    assert s.source(Secrets.GOOGLE) == "keychain"
+    assert Secrets(MemorySecretStore(), environ={}).source(Secrets.OPENAI) is None

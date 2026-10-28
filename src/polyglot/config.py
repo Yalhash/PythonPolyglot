@@ -11,7 +11,6 @@ API keys are not part of the config. They live in the OS keyring (see ``Secrets`
 
 from __future__ import annotations
 
-import contextlib
 import json
 import os
 import sys
@@ -20,7 +19,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from polyglot.core.errors import ConfigError
 from polyglot.core.ports import SecretStore
@@ -41,6 +40,11 @@ class AudioConfig(_Section):
     #: auto = WASAPI loopback on Windows, else the default input device
     source: Literal["auto", "loopback", "device", "file"] = "auto"
     device: str | None = None  # input device name or index, for source = "device"
+
+    @field_validator("device", mode="before")
+    @classmethod
+    def _device_as_text(cls, value: object) -> object:
+        return str(value) if isinstance(value, int) and not isinstance(value, bool) else value
     file: str | None = None  # WAV path, for source = "file"
     ring_seconds: float = Field(30.0, ge=1.0, le=600.0)
     gap_fill: bool = True
@@ -158,12 +162,9 @@ def _env_overrides(environ: Mapping[str, str]) -> dict[str, dict[str, Any]]:
         section, _, field = key[len(ENV_PREFIX) :].lower().partition("__")
         if section not in SECTIONS:
             continue
-        value: Any = raw
-        with contextlib.suppress(json.JSONDecodeError):  # numbers/bools/null as JSON
-            value = json.loads(raw)
-        if isinstance(value, (dict, list)):
-            value = raw
-        out.setdefault(section, {})[field] = value
+        # Kept as text: pydantic converts "true"/"800"/"0.5" for typed fields, and text
+        # fields (a device named "3") stay text.
+        out.setdefault(section, {})[field] = raw
     return out
 
 
@@ -177,19 +178,66 @@ def _merge(base: dict[str, Any], over: Mapping[str, Any]) -> dict[str, Any]:
     return merged
 
 
-def load_config(path: Path | None = None, environ: Mapping[str, str] | None = None) -> AppConfig:
-    path = path or default_config_path()
-    data: dict[str, Any] = {}
-    if path.exists():
-        try:
-            data = tomllib.loads(path.read_text(encoding="utf-8"))
-        except (OSError, tomllib.TOMLDecodeError) as exc:
-            raise ConfigError(f"cannot read {path}: {exc}") from exc
-    data = _merge(data, _env_overrides(os.environ if environ is None else environ))
+def _read_file(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    try:
+        return tomllib.loads(path.read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError) as exc:
+        raise ConfigError(f"cannot read {path}: {exc}") from exc
+
+
+def _validate(data: dict[str, Any], path: Path) -> AppConfig:
     try:
         return AppConfig.model_validate(data)
     except ValidationError as exc:
         raise ConfigError(f"invalid configuration ({path}): {exc}") from exc
+
+
+class ConfigStore:
+    """Loads the layered config and saves only what belongs in the file.
+
+    Environment overrides apply to the running app but are never written to
+    ``config.toml``: on save, a field still equal to its env override keeps the file's
+    own value. If the file could not be loaded, saving is refused, so a broken file is
+    never silently replaced with defaults.
+    """
+
+    def __init__(self, path: Path | None = None, environ: Mapping[str, str] | None = None) -> None:
+        self.path = path or default_config_path()
+        self._environ = os.environ if environ is None else environ
+        self._file: dict[str, Any] = {}
+        self._env: dict[str, dict[str, Any]] = {}
+        self._env_effective: dict[str, Any] = {}
+        self.loaded = False
+
+    def load(self) -> AppConfig:
+        self.loaded = False
+        file_data = _read_file(self.path)
+        env = _env_overrides(self._environ)
+        config = _validate(_merge(file_data, env), self.path)
+        self._file, self._env = file_data, env
+        self._env_effective = config.model_dump(mode="json")
+        self.loaded = True
+        return config
+
+    def save(self, config: AppConfig) -> Path:
+        if not self.loaded:
+            raise ConfigError(f"not saving: {self.path} could not be loaded; fix or remove it")
+        data = config.model_dump(mode="json")
+        for section, fields in self._env.items():
+            for field in fields:
+                if field not in data.get(section, {}):
+                    continue
+                if data[section][field] == self._env_effective.get(section, {}).get(field):
+                    data[section][field] = self._file.get(section, {}).get(field)  # file layer
+        _write_atomic(self.path, dict_to_toml(data))
+        self._file = {s: {k: v for k, v in vals.items() if v is not None} for s, vals in data.items()}
+        return self.path
+
+
+def load_config(path: Path | None = None, environ: Mapping[str, str] | None = None) -> AppConfig:
+    return ConfigStore(path, environ).load()
 
 
 # ----------------------------------------------------------------- saving
@@ -199,13 +247,14 @@ def _toml_value(value: Any) -> str:
     if isinstance(value, (int, float)):
         return repr(value)
     if isinstance(value, str):
-        return json.dumps(value, ensure_ascii=False)  # a JSON string is a valid TOML basic string
+        # A JSON string is a TOML basic string, except that TOML also forbids a raw DEL.
+        return json.dumps(value, ensure_ascii=False).replace("\x7f", "\\u007f")
     raise TypeError(f"cannot write {type(value).__name__} to TOML")
 
 
-def to_toml(config: AppConfig) -> str:
+def dict_to_toml(data: Mapping[str, Mapping[str, Any]]) -> str:
     lines = ["# Polyglot configuration. API keys are stored in the OS keyring, not here.", ""]
-    for section, values in config.model_dump(mode="json").items():
+    for section, values in data.items():
         lines.append(f"[{section}]")
         for key, value in values.items():
             if value is None:
@@ -215,18 +264,29 @@ def to_toml(config: AppConfig) -> str:
     return "\n".join(lines)
 
 
-def save_config(config: AppConfig, path: Path | None = None) -> Path:
-    """Write the whole config once, atomically (temp file + rename)."""
-    path = path or default_config_path()
+def to_toml(config: AppConfig) -> str:
+    return dict_to_toml(config.model_dump(mode="json"))
+
+
+def _write_atomic(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(prefix=".config-", suffix=".toml", dir=path.parent)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            fh.write(to_toml(config))
+            fh.write(text)
+            fh.flush()
+            os.fsync(fh.fileno())
         os.replace(tmp, path)
     except BaseException:
         Path(tmp).unlink(missing_ok=True)
         raise
+
+
+def save_config(config: AppConfig, path: Path | None = None) -> Path:
+    """Write the whole config once, atomically. (The app saves through ConfigStore,
+    which also keeps environment overrides out of the file.)"""
+    path = path or default_config_path()
+    _write_atomic(path, to_toml(config))
     return path
 
 
@@ -253,6 +313,13 @@ class Secrets:
             if value:
                 return value
         return self._store.get(name)
+
+    def source(self, name: str) -> str | None:
+        """Where the effective value comes from: an env var name, "keychain", or None."""
+        for var in self._ENV.get(name, ()):
+            if self._environ.get(var):
+                return var
+        return "keychain" if self._store.get(name) else None
 
     def set(self, name: str, value: str | None) -> None:
         self._store.set(name, value)

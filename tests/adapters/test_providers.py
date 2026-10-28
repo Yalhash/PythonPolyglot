@@ -59,6 +59,8 @@ def chat(content: Any, **message: Any) -> HttpResponse:
     [
         (401, "", AuthError, False),
         (403, "", AuthError, False),
+        (403, '{"error":{"errors":[{"reason":"dailyLimitExceeded"}]}}', QuotaExceeded, False),
+        (403, '{"error":{"errors":[{"reason":"userRateLimitExceeded"}]}}', ProviderUnavailable, True),
         (429, '{"error":{"code":"insufficient_quota"}}', QuotaExceeded, False),
         (429, "slow down", ProviderUnavailable, True),
         (500, "", ProviderUnavailable, True),
@@ -278,3 +280,29 @@ def test_build_messages_without_history() -> None:
     _, user = (m["content"] for m in build_messages(c2))
     assert user.startswith("They just said:")
     assert "casual" in build_messages(c2)[0]["content"]
+
+
+def test_truncated_response_is_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
+    import http.client
+
+    def boom(*_a: Any, **_k: Any) -> Any:
+        raise http.client.IncompleteRead(b"partial")
+
+    monkeypatch.setattr("urllib.request.urlopen", boom)
+    with pytest.raises(ProviderUnavailable):
+        UrllibHttpClient().post_json("https://example.com", {}, timeout=1)
+
+
+def test_error_body_read_failure_keeps_status(monkeypatch: pytest.MonkeyPatch) -> None:
+    class Body:
+        def read(self, *_a: Any) -> bytes:
+            raise TimeoutError("slow body")
+
+        def close(self) -> None:
+            pass
+
+    def fail(*_a: Any, **_k: Any) -> Any:
+        raise urllib.error.HTTPError("https://x", 503, "busy", {}, Body())  # type: ignore[arg-type]
+
+    monkeypatch.setattr("urllib.request.urlopen", fail)
+    assert UrllibHttpClient().post_json("https://example.com", {}, timeout=1).status == 503

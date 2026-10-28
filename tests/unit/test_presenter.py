@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from polyglot.core.events import (
+    ConversationCleared,
     LanguageChanged,
     PipelineState,
     PipelineStatus,
@@ -153,4 +154,18 @@ def test_user_actions_become_commands() -> None:
     p.on_clear()
     assert [c[0] for c in cmds.calls] == ["toggle", "request_suggestion", "set_language", "clear"]
     assert cmds.calls[2] == ("set_language", (None,))
+    assert 1 in view.rows  # cleared only when the core confirms
+
+
+def test_clear_waits_for_core_and_ignores_late_events_for_cleared_rows() -> None:
+    p, view, _ = make()
+    p.handle(u(1, UtteranceStatus.FINAL, "hola", source_lang="es"))
+    p.handle(u(2, UtteranceStatus.LISTENING))
+    p.handle(ConversationCleared(upto=2))
     assert view.rows == {} and view.suggestion == SuggestionVM(visible=False)
+    # Results that were already queued when Clear was pressed must not resurrect rows.
+    p.handle(u(1, UtteranceStatus.TRANSLATED, "hola", source_lang="es", translation="hello"))
+    p.handle(SuggestionsReady(Suggestion(2, (ReplyOption("a", "b"),))))
+    assert view.rows == {} and view.suggestion == SuggestionVM(visible=False)
+    p.handle(u(3, UtteranceStatus.LISTENING))  # new conversation
+    assert list(view.rows) == [3]

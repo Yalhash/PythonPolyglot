@@ -12,6 +12,7 @@ from typing import Protocol
 
 from polyglot.core import languages
 from polyglot.core.events import (
+    ConversationCleared,
     Event,
     LanguageChanged,
     PipelineState,
@@ -108,10 +109,20 @@ class Presenter:
     suggestion_for: int | None = None
     _suggestion: SuggestionVM | None = None
     _state: PipelineState = PipelineState.STOPPED
+    _cleared_upto: int = 0  # events about utterances <= this belong to a cleared conversation
 
     # ------------------------------------------------------------ events in
     def handle(self, event: Event) -> None:
-        if isinstance(event, UtteranceUpdated):
+        if self._is_cleared(event):
+            return
+        if isinstance(event, ConversationCleared):
+            self._cleared_upto = max(self._cleared_upto, event.upto)
+            self.rows.clear()
+            self.suggestion_for = None
+            self._suggestion = None
+            self.view.clear_rows()
+            self.view.show_suggestions(SuggestionVM(visible=False))
+        elif isinstance(event, UtteranceUpdated):
             self._on_utterance(event.utterance)
         elif isinstance(event, UtteranceDiscarded):
             self.rows.pop(event.utterance_id, None)
@@ -258,12 +269,20 @@ class Presenter:
         self.commands.request_suggestion()
 
     def on_clear(self) -> None:
+        # The view clears when the core confirms (ConversationCleared), so results
+        # already on their way cannot bring old rows back.
         self.commands.clear()
-        self.rows.clear()
-        self.suggestion_for = None
-        self._suggestion = None
-        self.view.clear_rows()
-        self.view.show_suggestions(SuggestionVM(visible=False))
+
+    def _is_cleared(self, event: Event) -> bool:
+        if isinstance(event, UtteranceUpdated):
+            uid = event.utterance.id
+        elif isinstance(event, (UtteranceDiscarded, SuggestionStarted)):
+            uid = event.utterance_id
+        elif isinstance(event, SuggestionsReady):
+            uid = event.suggestion.utterance_id
+        else:
+            return False
+        return uid <= self._cleared_upto
 
     def on_unlock_language(self) -> None:
         self.commands.set_language(None)

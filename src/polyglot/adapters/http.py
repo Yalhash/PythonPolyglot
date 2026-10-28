@@ -7,6 +7,7 @@ statuses are returned (not raised) so each provider maps them to its own meaning
 
 from __future__ import annotations
 
+import http.client
 import json
 import socket
 import ssl
@@ -75,8 +76,13 @@ class UrllibHttpClient:
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 return HttpResponse(resp.status, resp.read().decode("utf-8", "replace"))
         except urllib.error.HTTPError as exc:
-            body = exc.read().decode("utf-8", "replace") if exc.fp else ""
+            try:
+                body = exc.read().decode("utf-8", "replace") if exc.fp else ""
+            except (OSError, http.client.HTTPException):
+                body = ""  # the status is what matters; the body is detail
             return HttpResponse(exc.code, body)
+        except http.client.HTTPException as exc:  # IncompleteRead, RemoteDisconnected, ...
+            raise ProviderUnavailable(f"connection dropped: {exc!r}") from exc
         except TimeoutError as exc:
             raise ProviderTimeout(f"no response within {timeout:.1f}s") from exc
         except urllib.error.URLError as exc:
@@ -94,10 +100,17 @@ def raise_for_status(resp: HttpResponse, provider: str) -> None:
     if 200 <= resp.status < 300:
         return
     detail = resp.body[:300].replace("\n", " ")
+    body = resp.body.lower()
+    if resp.status == 403:
+        # Google returns 403 for quota and rate limits too, not only for a bad key.
+        if "dailylimitexceeded" in body or "quota" in body:
+            raise QuotaExceeded(f"{provider} quota exhausted: {detail}")
+        if "ratelimitexceeded" in body:  # rateLimitExceeded, userRateLimitExceeded
+            raise ProviderUnavailable(f"{provider} rate limited (HTTP 403)")
     if resp.status in (401, 403):
         raise AuthError(f"{provider} rejected the API key (HTTP {resp.status})")
     if resp.status == 429:
-        if "quota" in resp.body.lower() or "billing" in resp.body.lower():
+        if "quota" in body or "billing" in body:
             raise QuotaExceeded(f"{provider} quota exhausted: {detail}")
         raise ProviderUnavailable(f"{provider} rate limited (HTTP 429)")
     if resp.status in (408, 409) or resp.status >= 500:

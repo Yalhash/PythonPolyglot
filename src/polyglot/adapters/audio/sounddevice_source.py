@@ -64,6 +64,9 @@ class SoundDeviceSource:
             )
             self._stream.start()
         except sd.PortAudioError as exc:
+            if self._stream is not None:
+                self._stream.close()
+                self._stream = None
             raise AudioSourceError(f"cannot open {self.device_name!r}: {exc}") from exc
         log.info("listening on %s at %d Hz x%d", self.device_name, self._rate, self._channels)
 

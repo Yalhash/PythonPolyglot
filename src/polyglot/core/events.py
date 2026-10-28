@@ -41,6 +41,13 @@ class UtteranceDiscarded:
 
 
 @dataclass(frozen=True)
+class ConversationCleared:
+    """The user cleared the conversation. No event for an ID <= ``upto`` follows."""
+
+    upto: int
+
+
+@dataclass(frozen=True)
 class SuggestionStarted:
     utterance_id: int
 
@@ -75,6 +82,7 @@ class StageError:
 Event = (
     UtteranceUpdated
     | UtteranceDiscarded
+    | ConversationCleared
     | SuggestionStarted
     | SuggestionsReady
     | LanguageChanged

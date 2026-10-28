@@ -271,6 +271,9 @@ def test_clear_ignores_late_results(make_pipeline: Any, recorder: Recorder) -> N
     time.sleep(0.6)
     assert all(u.status is not UtteranceStatus.TRANSLATED for u in recorder.utterances().values())
     assert p.session.utterances == {}
+    from polyglot.core.events import ConversationCleared
+
+    assert recorder.of(ConversationCleared) == [ConversationCleared(1)]
 
 
 def test_stop_flushes_utterance_in_progress_and_restart_continues_ids(

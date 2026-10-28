@@ -37,7 +37,12 @@ def _combo(items: list[tuple[str, Any]], current: Any) -> QComboBox:
     for label, value in items:
         box.addItem(label, value)
     idx = box.findData(current)
-    box.setCurrentIndex(idx if idx >= 0 else 0)
+    if idx < 0 and current is not None:
+        # A value the list does not know (custom model, regional language, device by
+        # name) is kept as-is rather than silently replaced by the first entry.
+        box.addItem(str(current), current)
+        idx = box.count() - 1
+    box.setCurrentIndex(max(idx, 0))
     return box
 
 
@@ -183,7 +188,13 @@ class SettingsDialog(QDialog):
     def _key_field(self, name: str) -> QLineEdit:
         field = QLineEdit()
         field.setEchoMode(QLineEdit.EchoMode.Password)
-        field.setPlaceholderText("stored" if self._secrets.get(name) else "not set")
+        source = self._secrets.source(name)
+        if source is None:
+            field.setPlaceholderText("not set")
+        elif source == "keychain":
+            field.setPlaceholderText("stored in the keychain")
+        else:
+            field.setPlaceholderText(f"from {source} (overrides the keychain)")
         return field
 
     def _suggestions_tab(self) -> QWidget:

@@ -34,9 +34,9 @@ def find_default_loopback(pa: Any, pyaudio: Any) -> dict[str, Any]:
     """The loopback twin of the current default output device."""
     try:
         wasapi = pa.get_host_api_info_by_type(pyaudio.paWASAPI)
-    except OSError as exc:
-        raise AudioSourceError("WASAPI is not available on this system") from exc
-    speakers = pa.get_device_info_by_index(wasapi["defaultOutputDevice"])
+        speakers = pa.get_device_info_by_index(wasapi["defaultOutputDevice"])
+    except OSError as exc:  # no WASAPI, or no output device at all
+        raise AudioSourceError(f"no default output device to capture: {exc}") from exc
     if speakers.get("isLoopbackDevice"):
         return dict(speakers)
     for loopback in pa.get_loopback_device_info_generator():
@@ -124,18 +124,24 @@ class WasapiLoopbackSource:
             self._stream = None
 
     def _watch(self) -> None:
+        # PortAudio fixes its device list and defaults when it initialises, so asking
+        # the existing instance would never see a change: probe with a fresh instance.
         while not self._watch_stop.wait(2.0):
+            probe = self._pyaudio.PyAudio()
             try:
-                current = find_default_loopback(self._pa, self._pyaudio)
-            except AudioSourceError:
+                current = find_default_loopback(probe, self._pyaudio)
+            except (AudioSourceError, OSError):
+                probe.terminate()
                 continue
             if current["name"] == self._device["name"]:
+                probe.terminate()
                 continue
             with self._lock:
                 if (
                     int(current["defaultSampleRate"]) != self._rate
                     or int(current["maxInputChannels"]) != self._channels
                 ):
+                    probe.terminate()
                     # The pipeline's buffers were sized for the old format: ask for a restart.
                     if self._sink is not None:
                         self._sink.on_error(
@@ -147,8 +153,15 @@ class WasapiLoopbackSource:
                     return
                 log.info("default output changed to %s; following it", current["name"])
                 self._close()
+                old, self._pa = self._pa, probe  # device indices belong to the new instance
+                old.terminate()
                 self._device = current
-                self._open()
+                try:
+                    self._open()
+                except AudioSourceError as exc:
+                    if self._sink is not None:
+                        self._sink.on_error(exc)
+                    return
 
     def stop(self) -> None:
         self._watch_stop.set()
