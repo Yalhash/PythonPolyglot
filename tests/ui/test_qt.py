@@ -168,8 +168,12 @@ def test_real_windows_shield_hides_a_window(qtbot: Any) -> None:
     w = QWidget()
     qtbot.addWidget(w)
     w.show()
-    status = WindowsShield().exclude_from_capture(int(w.winId()))
-    assert status in (ShieldStatus.HIDDEN, ShieldStatus.UNSUPPORTED)
+    qtbot.waitExposed(w)
+    shield = WindowsShield()
+    status = shield.exclude_from_capture(int(w.winId()))
+    assert status in (ShieldStatus.HIDDEN, ShieldStatus.UNSUPPORTED), (
+        f"{status.value}: {shield.detail} (build {shield.build})"
+    )
 
 
 def test_settings_dialog_builds_config_and_stores_keys(qtbot: Any) -> None:

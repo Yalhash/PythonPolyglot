@@ -95,6 +95,12 @@ jobs:
         if: failure()
         shell: bash
         run: test -f junit.xml && uv run python scripts/ci_annotate.py junit junit.xml || true
+      - name: Diagnose a crashed test run
+        if: failure() && hashFiles('junit.xml') == ''
+        shell: bash
+        run: |
+          uv run pytest -v -p no:cacheprovider -o addopts="" -m "not slow" 2>&1 \
+            | uv run python scripts/ci_annotate.py tail "crashed test run (last lines)" || true
 
   models:
     name: Real models (Whisper tiny, Silero)

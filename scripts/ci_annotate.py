@@ -54,9 +54,18 @@ def junit(path: str) -> int:
     return emit(groups, "test failures")
 
 
+def tail(title: str, n: int = 60) -> None:
+    text = sys.stdin.read()
+    sys.stdout.write(text)
+    last = "\n".join(text.splitlines()[-n:])
+    print(f"::error title={title}::{esc(last)}")
+
+
 if __name__ == "__main__":
     mode = sys.argv[1]
-    if mode == "lines":
+    if mode == "tail":
+        tail(sys.argv[2] if len(sys.argv) > 2 else "output")
+    elif mode == "lines":
         lines()
     elif mode == "junit":
         junit(sys.argv[2])

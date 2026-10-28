@@ -43,7 +43,7 @@ class ArraySource:
 
     @property
     def duration_s(self) -> float:
-        return self._data.shape[0] / self._rate
+        return float(self._data.shape[0] / self._rate)
 
     def start(self, sink: AudioSink) -> None:
         self._stop.clear()

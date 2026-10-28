@@ -153,8 +153,8 @@ class OverlayWindow(QWidget):
         self._order: list[int] = []
         self._build()
         self.apply_ui(ui)
-        QShortcut(QKeySequence("Ctrl+Return"), self, activated=self.suggest_clicked.emit)
-        QShortcut(QKeySequence("Escape"), self, activated=self.hide)
+        QShortcut(QKeySequence("Ctrl+Return"), self).activated.connect(self.suggest_clicked.emit)
+        QShortcut(QKeySequence("Escape"), self).activated.connect(self.hide)
 
     # ------------------------------------------------------------ layout
     def _build(self) -> None:
@@ -201,18 +201,18 @@ class OverlayWindow(QWidget):
         cl.addWidget(self.status, 1)
         root.addWidget(controls)
 
-        self.scroll = QScrollArea()
-        self.scroll.setObjectName("Transcript")
-        self.scroll.setWidgetResizable(True)
-        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.transcript = QScrollArea()
+        self.transcript.setObjectName("Transcript")
+        self.transcript.setWidgetResizable(True)
+        self.transcript.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         holder = QWidget()
         holder.setObjectName("TranscriptBody")
         self.rows_layout = QVBoxLayout(holder)
         self.rows_layout.setContentsMargins(6, 6, 6, 6)
         self.rows_layout.setSpacing(6)
         self.rows_layout.addStretch(1)
-        self.scroll.setWidget(holder)
-        root.addWidget(self.scroll, 3)
+        self.transcript.setWidget(holder)
+        root.addWidget(self.transcript, 3)
 
         self.suggestions = QFrame()
         self.suggestions.setObjectName("Suggestions")
@@ -255,11 +255,11 @@ class OverlayWindow(QWidget):
 
     # ------------------------------------------------------------ ViewPort
     def _at_bottom(self) -> bool:
-        bar = self.scroll.verticalScrollBar()
+        bar = self.transcript.verticalScrollBar()
         return bar is None or bar.value() >= bar.maximum() - 4
 
     def _scroll_to_bottom(self) -> None:
-        bar = self.scroll.verticalScrollBar()
+        bar = self.transcript.verticalScrollBar()
         if bar is not None:
             bar.setValue(bar.maximum())
 

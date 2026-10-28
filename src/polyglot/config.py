@@ -110,13 +110,13 @@ class PrivacyConfig(_Section):
 
 
 class AppConfig(_Section):
-    audio: AudioConfig = Field(default_factory=AudioConfig)
-    vad: VadConfig = Field(default_factory=VadConfig)
-    asr: AsrConfig = Field(default_factory=AsrConfig)
-    translation: TranslationConfig = Field(default_factory=TranslationConfig)
-    suggestions: SuggestionsConfig = Field(default_factory=SuggestionsConfig)
-    ui: UiConfig = Field(default_factory=UiConfig)
-    privacy: PrivacyConfig = Field(default_factory=PrivacyConfig)
+    audio: AudioConfig = AudioConfig()  # pydantic copies model defaults per instance
+    vad: VadConfig = VadConfig()  # pydantic copies model defaults per instance
+    asr: AsrConfig = AsrConfig()  # pydantic copies model defaults per instance
+    translation: TranslationConfig = TranslationConfig()  # pydantic copies model defaults per instance
+    suggestions: SuggestionsConfig = SuggestionsConfig()  # pydantic copies model defaults per instance
+    ui: UiConfig = UiConfig()  # pydantic copies model defaults per instance
+    privacy: PrivacyConfig = PrivacyConfig()  # pydantic copies model defaults per instance
 
 
 SECTIONS = tuple(AppConfig.model_fields)

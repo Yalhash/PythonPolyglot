@@ -85,6 +85,12 @@ def test_invalid_config_raises_config_error(tmp_path: Path, content: str) -> Non
         load_config(path, environ={})
 
 
+def test_default_sections_are_independent_per_instance() -> None:
+    a, b = AppConfig(), AppConfig()
+    a.audio.ring_seconds = 99
+    assert b.audio.ring_seconds == 30.0
+
+
 def test_changed_sections() -> None:
     a = AppConfig()
     b = a.model_copy(deep=True)

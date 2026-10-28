@@ -47,6 +47,7 @@ def _tray_icon() -> Any:
 
 
 def run_gui(config_path: Path | None, *, demo: bool = False) -> int:
+    from PyQt6.QtCore import QTimer
     from PyQt6.QtWidgets import QApplication, QMenu, QMessageBox, QSystemTrayIcon
 
     from polyglot import platform
@@ -181,8 +182,12 @@ def run_gui(config_path: Path | None, *, demo: bool = False) -> int:
     window.show()
     if config_error:
         presenter.view.set_status(presenter_status_error(config_error))
-    controller.ensure_built()
-    refresh_flags()
+    def startup() -> None:
+        # After the event loop starts, so the window paints before devices/models load.
+        controller.ensure_built()
+        refresh_flags()
+
+    QTimer.singleShot(0, startup)
     presenter.view.set_language(
         presenter.language_label(config.asr.language, config.asr.language is not None)
     )

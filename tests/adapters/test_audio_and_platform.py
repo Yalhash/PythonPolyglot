@@ -212,6 +212,7 @@ def test_shield_hides_on_supported_build() -> None:
     api = FakeUser32()
     shield = WindowsShield(user32=api, build=MIN_BUILD, last_error=lambda: 0)
     assert shield.exclude_from_capture(0x1234) is ShieldStatus.HIDDEN
+    assert shield.detail == ""
     assert api.set_calls == [(0x1234, WDA_EXCLUDEFROMCAPTURE)]
 
 
