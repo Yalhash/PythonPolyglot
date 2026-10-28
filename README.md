@@ -66,6 +66,28 @@ that fits the job instead (`none` for translation, `low` for suggestions). If a 
 rejects a parameter or value, the request is retried once without it, and that is
 remembered for the session.
 
+### Your microphone
+
+Settings → Audio → "Also listen to my microphone" adds a second input for your own voice
+(off by default). What you say is transcribed on this computer, shown in the window as a
+"You" line, and used as context, so suggestions know what you already said. It is never
+translated and never replied to. Use headphones: with speakers, the microphone also hears
+the other person and those lines would be tagged as yours. If the microphone cannot be
+opened you get a warning and listening to the other person carries on.
+
+### About you
+
+Settings → About you lets suggestions talk about *you*: your name, role, skills, languages,
+experience, hobbies and interests, how you want replies to sound, and what you want from the
+conversation. Fill it in once; it is saved in `config.toml` (the `[profile]` section) and
+used every time. Suggestions also see what was said earlier in the conversation, up to
+`suggestions.history` utterances or `suggestions.history_chars` characters.
+
+Everything in your profile is sent to OpenAI with each suggestion request, so it only has
+fields for things you would say out loud to the other person. There is deliberately no field
+for health, politics, religion, money or other private details, and the free-text fields are
+yours to keep clean. Profile edits take effect on the next suggestion with no restart.
+
 ## Configuration
 
 Settings are saved to `config.toml` in your user config directory

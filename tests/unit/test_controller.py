@@ -181,3 +181,29 @@ def test_save_failure_is_reported_not_raised() -> None:
     new.ui.opacity = 0.5
     assert c.apply_config(new) == {"ui"}
     assert any(isinstance(e, StageError) and e.stage == "settings" for e in events)
+
+
+def test_profile_change_applies_live_without_rebuilding_or_stopping() -> None:
+    from polyglot.core.profile import UserProfile
+
+    class Recording(FakePipeline):
+        profiles: list[UserProfile] = []  # noqa: RUF012
+
+        def set_profile(self, profile: UserProfile) -> None:
+            self.profiles.append(profile)
+
+    class RecordingBuilder(FakeBuilder):
+        def __call__(self, cfg: AppConfig, secrets: Secrets, bus: EventBus, **kw: Any) -> Built:
+            p = Recording(kw.get("session"), kw.get("ids"))
+            self.built.append(p)
+            return Built(p)  # type: ignore[arg-type]
+
+    c, b, saved, _ = make(RecordingBuilder())
+    c.start()
+    new = c.config.model_copy(deep=True)
+    new.profile.name = "Sam"
+    new.profile.hobbies = ["chess"]
+    assert c.apply_config(new) == {"profile"}
+    assert len(b.built) == 1 and c.listening  # not rebuilt, still listening
+    assert Recording.profiles == [UserProfile(name="Sam", hobbies=("chess",))]
+    assert saved[-1].profile.name == "Sam"  # persisted

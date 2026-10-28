@@ -44,7 +44,16 @@ def test_save_then_load_round_trips(tmp_path: Path) -> None:
 def test_toml_output_is_valid_and_skips_none() -> None:
     text = to_toml(AppConfig())
     data = tomllib.loads(text)
-    assert set(data) == {"audio", "vad", "asr", "translation", "suggestions", "ui", "privacy"}
+    assert set(data) == {
+        "audio",
+        "vad",
+        "asr",
+        "translation",
+        "suggestions",
+        "profile",
+        "ui",
+        "privacy",
+    }
     assert "language" not in data["asr"]  # None -> omitted
     assert "api_key" not in text
 
@@ -195,3 +204,94 @@ def test_whisper_compute_type_defaults_to_auto(tmp_path: Path) -> None:
     path.write_text('[asr]\ncompute_type = "float64"\n', encoding="utf-8")
     with pytest.raises(ConfigError):
         load_config(path, environ={})
+
+
+# ------------------------------------------------------------------ profile
+def test_profile_is_empty_by_default() -> None:
+    assert AppConfig().profile.to_core().is_empty
+
+
+def test_profile_persists_across_runs_including_lists(tmp_path: Path) -> None:
+    from polyglot.config import ConfigStore
+
+    path = tmp_path / "config.toml"
+    store = ConfigStore(path, environ={})
+    cfg = store.load()
+    cfg.profile.name = "Sam"
+    cfg.profile.summary = 'Backend developer; likes "clean" code\nand tea'
+    cfg.profile.hobbies = ["cycling", "chess; blitz"]
+    cfg.profile.languages = ["English (native)", "Spanish (beginner)"]
+    store.save(cfg)
+
+    reloaded = ConfigStore(path, environ={}).load()  # a new run
+    assert reloaded.profile == cfg.profile
+    core = reloaded.profile.to_core()
+    assert core.name == "Sam" and core.hobbies == ("cycling", "chess; blitz")
+    assert core.languages == ("English (native)", "Spanish (beginner)")
+
+
+def test_profile_items_are_trimmed_and_blanks_dropped() -> None:
+    cfg = AppConfig.model_validate(
+        {"profile": {"name": "  Sam  ", "hobbies": ["  chess ", "", "   ", "cycling"]}}
+    )
+    assert cfg.profile.name == "Sam" and cfg.profile.hobbies == ["chess", "cycling"]
+
+
+def test_profile_lists_can_come_from_an_environment_variable(tmp_path: Path) -> None:
+    cfg = load_config(
+        tmp_path / "none.toml",
+        environ={
+            "POLYGLOT_PROFILE__HOBBIES": "chess; cycling\nbaking",
+            "POLYGLOT_PROFILE__ROLE": "SRE",
+        },
+    )
+    assert cfg.profile.hobbies == ["chess", "cycling", "baking"] and cfg.profile.role == "SRE"
+
+
+@pytest.mark.parametrize(
+    "profile",
+    [
+        {"hobbies": ["x"] * 16},  # too many items
+        {"skills": ["y" * 121]},  # item too long
+        {"summary": "z" * 501},
+        {"medical_history": "no"},  # there is deliberately no such field
+    ],
+)
+def test_profile_limits_keep_the_prompt_bounded(tmp_path: Path, profile: dict[str, object]) -> None:
+    with pytest.raises(ConfigError):
+        load_config_from(tmp_path, {"profile": profile})
+
+
+def load_config_from(tmp_path: Path, data: dict[str, dict[str, object]]) -> AppConfig:
+    from polyglot.config import dict_to_toml
+
+    path = tmp_path / "config.toml"
+    path.write_text(dict_to_toml(data), encoding="utf-8")
+    return load_config(path, environ={})
+
+
+def test_history_chars_default_and_bounds(tmp_path: Path) -> None:
+    assert AppConfig().suggestions.history_chars == 3000
+    with pytest.raises(ConfigError):
+        load_config_from(tmp_path, {"suggestions": {"history_chars": 10}})
+
+
+# ------------------------------------------------------------------ microphone
+def test_the_microphone_is_opt_in_and_persists(tmp_path: Path) -> None:
+    from polyglot.config import ConfigStore
+
+    assert AppConfig().audio.user_mic is False and AppConfig().audio.user_device is None
+    path = tmp_path / "config.toml"
+    store = ConfigStore(path, environ={})
+    cfg = store.load()
+    cfg.audio.user_mic = True
+    cfg.audio.user_device = "Headset Mic"
+    store.save(cfg)
+    reloaded = load_config(path, environ={})
+    assert reloaded.audio.user_mic and reloaded.audio.user_device == "Headset Mic"
+
+
+def test_microphone_device_may_be_a_number(tmp_path: Path) -> None:
+    path = tmp_path / "config.toml"
+    path.write_text("[audio]\nuser_mic = true\nuser_device = 4\n", encoding="utf-8")
+    assert load_config(path, environ={}).audio.user_device == "4"

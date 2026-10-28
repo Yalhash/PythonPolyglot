@@ -36,7 +36,7 @@ src/polyglot/
   config.py            AppConfig (pydantic), TOML load/save, env overrides, Secrets
   logging_setup.py     rotating file + stderr; no transcript text by default
   core/
-    models.py          Utterance, SpeechSegment, Transcript, Suggestion, ReplyOption, IdSource
+    models.py          Utterance, Speaker, SpeechSegment, Transcript, Suggestion, ReplyOption, IdSource
     errors.py          ProviderTimeout, ProviderUnavailable, QuotaExceeded, AuthError, ...
     events.py          UtteranceUpdated, SuggestionsReady, PipelineStatus, StageError, EventBus
     ports.py           AudioSource, Resampler, VoiceActivityModel, Transcriber, Translator,
@@ -44,6 +44,8 @@ src/polyglot/
     ringbuffer.py      preallocated SPSC audio ring buffer with overrun accounting
     segmenter.py       VAD endpointing state machine (pure)
     session.py         conversation state + language lock policy
+    profile.py         UserProfile: public details the user shares with the suggester
+    context.py         ContextBuilder: Session + UserProfile -> SuggestionContext
     languages.py       code <-> name
     pipeline.py        FrontEnd, AsrQueue, AsrWorker, Coordinator, Pipeline
   adapters/
@@ -79,6 +81,25 @@ another thread can never change underneath it.
 Utterance IDs come from one monotonic `IdSource` and define spoken order. Results are
 placed by ID, never by arrival time.
 
+Every utterance has a `Speaker`: `OTHER` (the person being listened to) or `USER`. Only
+`OTHER` utterances are ever replied to; `USER` turns (from the user's own microphone, see
+"The user's microphone" below) are context for the next suggestion.
+
+### Suggestion context
+
+`ContextBuilder` (core, pure, immutable) is the one place that decides what the suggester
+sees: the target utterance, a window of earlier utterances from **both** speakers (capped by
+count, `suggestions.history`, and by length, `suggestions.history_chars`; cut from the
+oldest end, the newest is always kept), the languages, the conversation type and the user's
+`UserProfile`. The coordinator owns the builder and the `Session`, so state stays
+single-writer; a `Suggester` only renders the context it is given. A rolling summary
+would slot in here as one more derived input.
+
+`UserProfile` is an allowlist of public details (name, role, location, summary, goals,
+reply tone, languages, skills, experience, education, hobbies, interests, talking points).
+It lives in the `[profile]` section of `config.toml`, so it persists, and a change is
+applied to the running pipeline without a rebuild. A unit test pins the field list.
+
 ## Pipeline
 
 ![Pipeline](v1-pipeline.png)
@@ -87,6 +108,7 @@ placed by ID, never by arrival time.
 | --- | --- | --- |
 | audio library callback | downmix and copy the block into the ring buffer | allocate per sample, log, touch disk |
 | `polyglot-frontend` | resample to 16 kHz, cut 32 ms frames, VAD, segmenter, route | transcribe |
+| `polyglot-frontend-user` (only with the microphone on) | the same, for the user's microphone | transcribe |
 | `polyglot-asr` (exactly one) | load the model, transcribe segments in ID order | run in parallel with itself |
 | `polyglot-net-*` (4) | translation and suggestion calls with timeouts | write state |
 | `polyglot-coord` | own `Session`; apply results; dispatch; publish events | block on I/O |
@@ -108,12 +130,36 @@ help, an utterance whose speaker stops talking would never see its 600 ms of sil
 front end therefore feeds real-time-equivalent silence while an utterance is open and no
 audio has arrived for 250 ms (`audio.gap_fill`).
 
+### The user's microphone
+
+With `audio.user_mic = true` the pipeline runs a second, independent audio stream tagged
+`Speaker.USER`: its own source (`SoundDeviceSource`), ring buffer, resampler, VAD instance
+(VADs keep state) and segmenter, in a second front-end thread. Everything after the
+segmenter is shared:
+
+* One `IdSource` (locked), so IDs still define spoken order across both streams.
+* One `AsrQueue` and the one ASR worker; the segment carries its `speaker` through to the
+  `Utterance`. Both speakers are transcribed with the same language hint (the other
+  person's locked language), because the user is replying in it.
+* One coordinator and `Session`. User utterances never move the language lock, are not
+  translated, are never the target of a suggestion, and do not mark a suggestion stale.
+  They do appear in the history the suggester sees, and in the window as "You" rows.
+* A microphone that fails (at start or later) is reported as a warning
+  (`StageError("audio", ...)`, "microphone: ...") and listening to the other person
+  continues. The mic is skipped, with a warning, when the main input is the same device,
+  and for replayed files.
+
+Known limitation: with speakers instead of headphones the microphone hears the other
+person too, and those lines would be tagged as the user's. There is no echo cancellation or
+cross-stream gating yet.
+
 ### Ordering, staleness and backpressure
 
 * Every result carries its utterance ID; the coordinator places it by ID.
 * Nothing is dropped for being late. A late translation fills its own row.
-* Suggestions run only on the hotkey, for the latest final utterance, with the last 6
-  final utterances as context. A reply stays linked to the sentence it answers. If newer
+* Suggestions run only on the hotkey, for the latest final utterance by the other person,
+  with the last 6 final utterances (either speaker, within a length budget) and the user
+  profile as context. A reply stays linked to the sentence it answers. If newer
   sentences arrive first, the presenter marks it "newer sentences since". Pressing the
   hotkey again supersedes an in-flight request: its result is ignored, since the newer
   request wins.

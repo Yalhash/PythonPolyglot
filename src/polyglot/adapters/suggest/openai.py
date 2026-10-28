@@ -13,7 +13,7 @@ from polyglot.adapters.http import HttpClient, UrllibHttpClient
 from polyglot.adapters.openai_models import chat_options
 from polyglot.adapters.translate.openai import DEFAULT_BASE_URL, chat_text
 from polyglot.core.errors import BadResponse
-from polyglot.core.models import ConversationType, ReplyOption, SuggestionContext
+from polyglot.core.models import ConversationType, ReplyOption, Speaker, SuggestionContext
 
 SCHEMA: dict[str, Any] = {
     "name": "reply_options",
@@ -46,9 +46,13 @@ _SETTING = {
 }
 
 
+_SPEAKER = {Speaker.OTHER: "Them", Speaker.USER: "User"}
+
+
 def build_messages(ctx: SuggestionContext) -> list[dict[str, str]]:
     history = "\n".join(
-        f"- {u.text}" + (f"  ({u.translation})" if u.translation else "") for u in ctx.history
+        f"- {_SPEAKER[u.speaker]}: {u.text}" + (f"  ({u.translation})" if u.translation else "")
+        for u in ctx.history
     )
     target = ctx.target.text + (f"\n({ctx.target.translation})" if ctx.target.translation else "")
     system = (
@@ -60,8 +64,19 @@ def build_messages(ctx: SuggestionContext) -> list[dict[str, str]]:
         "(what it means). Do not invent facts about the user; if the reply needs a fact you "
         "do not know, keep it general."
     )
+    if facts := ctx.profile.facts():
+        system += (
+            "\n\nAbout the user (public details they chose to share):\n"
+            + "\n".join(f"- {label}: {text}" for label, text in facts)
+            + "\nUse these only where they genuinely fit what was said, and match the "
+            "preferred tone if one is given. Do not bring up unrelated personal details, and "
+            "never state personal facts that are not listed here."
+        )
     user = (
-        f"Earlier in the conversation:\n{history}\n\n" if history else ""
+        "Earlier in the conversation (User is the person you are helping, Them is the other "
+        f"speaker):\n{history}\n\n"
+        if history
+        else ""
     ) + f"They just said:\n{target}"
     return [{"role": "system", "content": system}, {"role": "user", "content": user}]
 

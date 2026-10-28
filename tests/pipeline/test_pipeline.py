@@ -12,13 +12,20 @@ import pytest
 
 from polyglot.adapters.audio.playback import ArraySource
 from polyglot.adapters.fakes import (
+    AmplitudeVad,
     CannedSuggester,
     EchoTranslator,
     ScriptedTranscriber,
+    silence,
     speech_like,
     tone,
 )
-from polyglot.core.errors import AuthError, ProviderUnavailable, TranscriptionFailed
+from polyglot.core.errors import (
+    AudioSourceError,
+    AuthError,
+    ProviderUnavailable,
+    TranscriptionFailed,
+)
 from polyglot.core.events import (
     LanguageChanged,
     PipelineState,
@@ -28,10 +35,20 @@ from polyglot.core.events import (
     SuggestionStarted,
     UtteranceDiscarded,
 )
-from polyglot.core.models import SAMPLE_RATE, ErrorKind, UtteranceStatus
+from polyglot.core.models import (
+    FRAME_SAMPLES,
+    SAMPLE_RATE,
+    ErrorKind,
+    IdSource,
+    Speaker,
+    Transcript,
+    Utterance,
+    UtteranceStatus,
+)
 from polyglot.core.pipeline import PipelineConfig
 from polyglot.core.ports import AudioSink
-from polyglot.core.session import LanguagePolicy
+from polyglot.core.profile import UserProfile
+from polyglot.core.session import LanguagePolicy, Session
 from tests.conftest import Recorder, utterances_audio, wait_for
 
 TEXTS = ["uno", "dos", "tres", "cuatro"]
@@ -532,3 +549,231 @@ def test_retranslate_pending_after_rebuild(bus: Any, recorder: Recorder) -> None
         assert session.get(1).translation == "[es→en] hola"  # type: ignore[union-attr]
     finally:
         p.close()
+
+
+# ------------------------------------------------------------------ context and profile
+def test_suggestion_context_carries_the_profile_from_config(
+    make_pipeline: Any, recorder: Recorder
+) -> None:
+    sug = CannedSuggester()
+    profile = UserProfile(name="Sam", hobbies=("chess",))
+    p = make_pipeline(
+        utterances_audio(1),
+        transcriber=ScriptedTranscriber(TEXTS[:1]),
+        suggester=sug,
+        config=PipelineConfig(ring_seconds=600.0, profile=profile),
+    )
+    run_to_end(p)
+    p.request_suggestion()
+    assert wait_for(lambda: recorder.of(SuggestionsReady))
+    assert sug.contexts[0].profile == profile
+
+
+def test_a_profile_change_applies_to_the_next_suggestion(
+    make_pipeline: Any, recorder: Recorder
+) -> None:
+    sug = CannedSuggester()
+    p = make_pipeline(
+        utterances_audio(1), transcriber=ScriptedTranscriber(TEXTS[:1]), suggester=sug
+    )
+    run_to_end(p)
+    p.request_suggestion()
+    assert wait_for(lambda: len(recorder.of(SuggestionsReady)) == 1)
+    p.set_profile(UserProfile(role="Engineer"))
+    p.request_suggestion()
+    assert wait_for(lambda: len(recorder.of(SuggestionsReady)) == 2)
+    assert sug.contexts[0].profile.is_empty
+    assert sug.contexts[1].profile.role == "Engineer"
+
+
+def test_the_users_own_turns_are_context_but_never_the_target(
+    make_pipeline: Any, recorder: Recorder
+) -> None:
+    session = Session("en")
+    session.put(
+        Utterance(
+            id=1,
+            t_start=0.0,
+            t_end=1.0,
+            status=UtteranceStatus.FINAL,
+            text="I led a team of five",
+            speaker=Speaker.USER,
+        )
+    )
+    session.put(  # spoken "later" than everything the audio will produce
+        Utterance(
+            id=500,
+            t_start=0.0,
+            t_end=1.0,
+            status=UtteranceStatus.FINAL,
+            text="Thanks",
+            speaker=Speaker.USER,
+        )
+    )
+    sug = CannedSuggester()
+    p = make_pipeline(
+        utterances_audio(2),
+        transcriber=ScriptedTranscriber(TEXTS[:2]),
+        suggester=sug,
+        session=session,
+        ids=IdSource(2),
+    )
+    run_to_end(p)
+    p.request_suggestion()
+    assert wait_for(lambda: recorder.of(SuggestionsReady))
+    ctx = sug.contexts[0]
+    assert ctx.target.text == "dos" and ctx.target.speaker is Speaker.OTHER
+    assert [(u.text, u.speaker) for u in ctx.history] == [
+        ("I led a team of five", Speaker.USER),
+        ("uno", Speaker.OTHER),
+    ]
+
+
+# ------------------------------------------------------------------ the user's microphone
+class ByLoudness:
+    """Quiet speech is "them", loud speech is "me"; both in Spanish, so a missing guard
+    shows up as the user's own lines being translated or moving the language lock."""
+
+    def __init__(self, language: str = "es") -> None:
+        self.language = language
+
+    def load(self) -> None:
+        pass
+
+    def transcribe(self, audio: Any, language: str | None) -> Transcript:
+        loud = float(np.max(np.abs(audio))) > 0.5
+        return Transcript("me" if loud else "them", self.language, 0.95)
+
+
+def bursts(n: int, amp: float) -> Any:
+    parts: list[Any] = [silence(0.3)]
+    for _ in range(n):
+        parts += [tone(1.0, amp=amp), silence(0.9)]
+    audio = np.concatenate(parts)
+    return np.concatenate((audio, np.zeros((-audio.size) % FRAME_SAMPLES, dtype=np.float32)))
+
+
+class LiveFake:
+    """A source the test feeds by hand, like a real device."""
+
+    sample_rate = SAMPLE_RATE
+
+    def __init__(self, fail_on_start: Exception | None = None) -> None:
+        self.sink: Any = None
+        self.started = self.stopped = 0
+        self.fail_on_start = fail_on_start
+
+    def start(self, sink: Any) -> None:
+        if self.fail_on_start is not None:
+            raise self.fail_on_start
+        self.sink, self.started = sink, self.started + 1
+
+    def stop(self) -> None:
+        self.stopped += 1
+
+
+def two_sources(make_pipeline: Any, *, others: int, mine: int, **kw: Any) -> Any:
+    return make_pipeline(
+        bursts(others, 0.3),
+        transcriber=ByLoudness(),
+        user_source=ArraySource(bursts(mine, 0.8), SAMPLE_RATE),
+        user_vad=AmplitudeVad(),
+        **kw,
+    )
+
+
+def run_both(p: Any) -> None:
+    p.start()
+    assert wait_for(lambda: p.source_ended and p.user_source_ended, 15)
+    assert p.wait_idle(15), "pipeline never became idle"
+
+
+def test_microphone_utterances_are_tagged_user_and_share_one_id_sequence(
+    make_pipeline: Any, recorder: Recorder
+) -> None:
+    p = two_sources(make_pipeline, others=3, mine=2)
+    run_both(p)
+    finals = recorder.finals()
+    assert sorted(u.text for u in finals) == ["me", "me", "them", "them", "them"]
+    assert {u.text: u.speaker for u in finals} == {"me": Speaker.USER, "them": Speaker.OTHER}
+    assert len({u.id for u in finals}) == 5  # one IdSource: no clashes between streams
+
+
+def test_the_users_own_lines_are_not_translated(make_pipeline: Any, recorder: Recorder) -> None:
+    p = two_sources(make_pipeline, others=2, mine=2, translator=EchoTranslator())
+    run_both(p)
+    finals = recorder.finals()
+    mine = [u for u in finals if u.speaker is Speaker.USER]
+    theirs = [u for u in finals if u.speaker is Speaker.OTHER]
+    assert len(mine) == 2 and len(theirs) == 2
+    assert all(u.status is UtteranceStatus.FINAL and u.translation is None for u in mine)
+    assert all(u.status is UtteranceStatus.TRANSLATED for u in theirs)
+
+
+def test_the_users_speech_does_not_move_the_language_lock(
+    make_pipeline: Any, recorder: Recorder
+) -> None:
+    # Two agreeing confident finals lock the language. One from them plus three from the
+    # user must not.
+    p = two_sources(make_pipeline, others=1, mine=3)
+    run_both(p)
+    assert p.session.locked_language is None
+    assert not recorder.of(LanguageChanged)
+
+
+def test_suggestions_reply_to_them_with_both_speakers_as_history(
+    make_pipeline: Any, recorder: Recorder
+) -> None:
+    sug = CannedSuggester()
+    p = two_sources(make_pipeline, others=2, mine=2, suggester=sug)
+    run_both(p)
+    p.request_suggestion()
+    assert wait_for(lambda: recorder.of(SuggestionsReady))
+    ctx = sug.contexts[0]
+    finals = recorder.finals()
+    latest_theirs = max(u.id for u in finals if u.speaker is Speaker.OTHER)
+    assert ctx.target.id == latest_theirs and ctx.target.speaker is Speaker.OTHER
+    assert [(u.id, u.speaker) for u in ctx.history] == [
+        (u.id, u.speaker) for u in finals if u.id < latest_theirs
+    ]
+
+
+def test_a_microphone_that_will_not_start_does_not_stop_listening_to_them(
+    make_pipeline: Any, recorder: Recorder
+) -> None:
+    p = make_pipeline(
+        bursts(1, 0.3),
+        transcriber=ByLoudness(),
+        user_source=LiveFake(fail_on_start=AudioSourceError("device busy")),
+        user_vad=AmplitudeVad(),
+    )
+    p.start()
+    assert wait_for(lambda: p.source_ended and p.user_source_ended, 10)
+    assert p.wait_idle(10)
+    assert [u.text for u in recorder.finals()] == ["them"]
+    (err,) = [e for e in recorder.of(StageError) if e.stage == "audio"]
+    assert "microphone" in err.message and "device busy" in err.message and err.retryable
+    assert all(s.state is not PipelineState.ERROR for s in recorder.of(PipelineStatus))
+    assert p.running
+
+
+def test_a_live_microphone_is_transcribed_and_stopped_with_the_pipeline(
+    make_pipeline: Any, recorder: Recorder
+) -> None:
+    other, mic = LiveFake(), LiveFake()
+    p = make_pipeline(
+        source=other, transcriber=ByLoudness(), user_source=mic, user_vad=AmplitudeVad()
+    )
+    p.start()
+    assert other.started == 1 and mic.started == 1
+    mic.sink.on_audio(bursts(1, 0.8))  # the user speaks into the microphone
+    assert wait_for(lambda: any(u.text == "me" for u in recorder.finals()), 10)
+    (mine,) = recorder.finals()
+    assert mine.speaker is Speaker.USER
+    p.stop()
+    assert other.stopped == 1 and mic.stopped == 1
+
+
+def test_user_source_and_vad_must_come_together(make_pipeline: Any) -> None:
+    with pytest.raises(ValueError, match="go together"):
+        make_pipeline(utterances_audio(1), user_source=LiveFake())

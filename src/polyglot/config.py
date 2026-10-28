@@ -13,16 +13,26 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import tempfile
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 from polyglot.core.errors import ConfigError
 from polyglot.core.ports import SecretStore
+from polyglot.core.profile import UserProfile
 
 if sys.version_info >= (3, 11):
     import tomllib
@@ -41,12 +51,16 @@ class AudioConfig(_Section):
     source: Literal["auto", "loopback", "device", "file"] = "auto"
     device: str | None = None  # input device name or index, for source = "device"
 
-    @field_validator("device", mode="before")
+    @field_validator("device", "user_device", mode="before")
     @classmethod
     def _device_as_text(cls, value: object) -> object:
         return str(value) if isinstance(value, int) and not isinstance(value, bool) else value
 
     file: str | None = None  # WAV path, for source = "file"
+    #: Also listen to the user's own microphone, so suggestions know what they said.
+    #: Opt-in. Audio stays on this computer; only transcribed text is ever sent anywhere.
+    user_mic: bool = False
+    user_device: str | None = None  # input device name or index; None = the default input
     ring_seconds: float = Field(30.0, ge=1.0, le=600.0)
     gap_fill: bool = True
 
@@ -113,8 +127,74 @@ class SuggestionsConfig(_Section):
     model: str = "gpt-4.1-mini"
     timeout_s: float = Field(6.0, gt=0.0, le=60.0)
     conversation_type: Literal["interview", "meeting", "casual"] = "meeting"
-    history: int = Field(6, ge=0, le=30)
+    history: int = Field(6, ge=0, le=30)  # most utterances of earlier conversation
+    history_chars: int = Field(3000, ge=200, le=20000)  # soft cap on their total length
     options: int = Field(2, ge=1, le=3)
+
+
+_Short = Annotated[str, StringConstraints(strip_whitespace=True, max_length=120)]
+_Long = Annotated[str, StringConstraints(strip_whitespace=True, max_length=500)]
+_Items = Annotated[list[_Short], Field(max_length=15)]
+
+
+class ProfileConfig(_Section):
+    """Public details the user lets the suggester use. Saved in ``config.toml`` like every
+    other setting, so it is set up once. See ``polyglot.core.profile`` for what belongs
+    here (and what deliberately has no field). Sent to the provider with each request."""
+
+    name: _Short = ""
+    role: _Short = ""
+    location: _Short = ""
+    summary: _Long = ""
+    goals: _Short = ""
+    tone: _Short = ""
+    languages: _Items = Field(default_factory=list)
+    skills: _Items = Field(default_factory=list)
+    experience: _Items = Field(default_factory=list)
+    education: _Items = Field(default_factory=list)
+    hobbies: _Items = Field(default_factory=list)
+    interests: _Items = Field(default_factory=list)
+    talking_points: _Items = Field(default_factory=list)
+
+    @field_validator(
+        "languages",
+        "skills",
+        "experience",
+        "education",
+        "hobbies",
+        "interests",
+        "talking_points",
+        mode="before",
+    )
+    @classmethod
+    def _as_items(cls, value: object) -> object:
+        # An environment variable arrives as text: one item per line or per ";".
+        if isinstance(value, str):
+            value = re.split(r"[\n;]", value)
+        if isinstance(value, (list, tuple)):
+            return [
+                v.strip() if isinstance(v, str) else v
+                for v in value
+                if not (isinstance(v, str) and not v.strip())
+            ]
+        return value
+
+    def to_core(self) -> UserProfile:
+        return UserProfile(
+            name=self.name,
+            role=self.role,
+            location=self.location,
+            summary=self.summary,
+            goals=self.goals,
+            tone=self.tone,
+            languages=tuple(self.languages),
+            skills=tuple(self.skills),
+            experience=tuple(self.experience),
+            education=tuple(self.education),
+            hobbies=tuple(self.hobbies),
+            interests=tuple(self.interests),
+            talking_points=tuple(self.talking_points),
+        )
 
 
 class UiConfig(_Section):
@@ -143,6 +223,7 @@ class AppConfig(_Section):
     suggestions: SuggestionsConfig = (
         SuggestionsConfig()
     )  # pydantic copies model defaults per instance
+    profile: ProfileConfig = ProfileConfig()  # pydantic copies model defaults per instance
     ui: UiConfig = UiConfig()  # pydantic copies model defaults per instance
     privacy: PrivacyConfig = PrivacyConfig()  # pydantic copies model defaults per instance
 
@@ -271,6 +352,8 @@ def _toml_value(value: Any) -> str:
         return "true" if value else "false"
     if isinstance(value, (int, float)):
         return repr(value)
+    if isinstance(value, list):
+        return "[" + ", ".join(_toml_value(v) for v in value) + "]"
     if isinstance(value, str):
         # A JSON string is a TOML basic string, except that TOML also forbids a raw DEL.
         return json.dumps(value, ensure_ascii=False).replace("\x7f", "\\u007f")

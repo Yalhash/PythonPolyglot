@@ -32,9 +32,12 @@
 #Row { background: #1f2229; border-radius: 6px; }
 #Row[partial="true"] #Original { color: #9aa0aa; font-style: italic; }
 #Row[failed="true"] { border: 1px solid #6b2e28; }
+#Row[mine="true"] { background: #1c2736; }
+#Who { color: #6aa9ff; font-size: 8.5pt; font-weight: 600; }
 #Original { color: #e8e8ea; }
 #Translation { color: #8fc1ff; }
 #Note { color: #7d838d; font-size: 8.5pt; }
+#HintWarning { color: #e3b341; font-size: 8.5pt; }
 
 #Suggestions { background: #1b1e24; border-top: 1px solid #2c3039; }
 #ReplyTo { color: #9aa0aa; font-size: 9pt; }

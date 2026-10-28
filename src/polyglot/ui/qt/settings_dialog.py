@@ -22,7 +22,9 @@ from PyQt6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMessageBox,
+    QPlainTextEdit,
     QPushButton,
+    QScrollArea,
     QSpinBox,
     QTabWidget,
     QVBoxLayout,
@@ -169,6 +171,7 @@ class SettingsDialog(QDialog):
         tabs.addTab(self._speech_tab(), "Speech")
         tabs.addTab(self._translation_tab(), "Translation")
         tabs.addTab(self._suggestions_tab(), "Suggestions")
+        tabs.addTab(self._profile_tab(), "About you")
         tabs.addTab(self._window_tab(), "Window")
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
@@ -201,6 +204,15 @@ class SettingsDialog(QDialog):
             for d in devices
         ]
         self.device = _combo(items, a.device)
+        self.user_mic = QCheckBox("Also listen to my microphone (replies then know what I said)")
+        self.user_mic.setChecked(a.user_mic)
+        self.user_mic.setToolTip(
+            "Your speech is transcribed on this computer. Only the text is used as context."
+        )
+        mic_items: list[tuple[str, Any]] = [("Default microphone", None), *items[1:]]
+        self.user_device = _combo(mic_items, a.user_device)
+        self.user_device.setEnabled(a.user_mic)
+        self.user_mic.toggled.connect(self.user_device.setEnabled)
         self.file = QLineEdit(a.file or "")
         browse = QPushButton("Browse…")
         browse.clicked.connect(self._browse)
@@ -210,6 +222,15 @@ class SettingsDialog(QDialog):
         form.addRow("Listen to", self.source)
         form.addRow("Input device", self.device)
         form.addRow("WAV file", row)
+        mic_warning = QLabel(
+            "Use headphones. Speakers cause audio feedback: the microphone would pick up "
+            "the other person's voice and treat it as yours."
+        )
+        mic_warning.setObjectName("HintWarning")
+        mic_warning.setWordWrap(True)
+        form.addRow("", self.user_mic)
+        form.addRow("", mic_warning)
+        form.addRow("My microphone", self.user_device)
         if error:
             form.addRow(QLabel(f"Could not list devices: {error}"))
         return w
@@ -366,6 +387,65 @@ class SettingsDialog(QDialog):
         form.addRow("Replies to offer", self.option_count)
         return w
 
+    #: (attribute, form label, placeholder) for the one-per-line fields of the profile
+    _PROFILE_LISTS: ClassVar[tuple[tuple[str, str, str], ...]] = (
+        ("languages", "Languages you speak", "English (native)\nSpanish (beginner)"),
+        ("skills", "Skills", "Python\nProject management"),
+        ("experience", "Experience", "5 years of backend work at Acme"),
+        ("education", "Education", "BSc Computer Science"),
+        ("hobbies", "Hobbies", "Cycling\nChess"),
+        ("interests", "Interests", "Open-source software"),
+        ("talking_points", "Also happy to mention", "Volunteered at a coding club"),
+    )
+
+    def _profile_tab(self) -> QWidget:
+        p = self._config.profile
+        note = QLabel(
+            "Replies can use what you share here. It is saved once and kept between runs. "
+            "Everything on this tab is sent to OpenAI with each suggestion request, so share "
+            "only what you would happily say out loud to the other person: work, skills, "
+            "hobbies. Leave out private details such as health, politics, religion or money."
+        )
+        note.setWordWrap(True)
+        form = QFormLayout()
+        self.profile_name = QLineEdit(p.name)
+        self.profile_name.setPlaceholderText("What to call you")
+        self.profile_role = QLineEdit(p.role)
+        self.profile_role.setPlaceholderText("Job title, or what you do")
+        self.profile_location = QLineEdit(p.location)
+        self.profile_location.setPlaceholderText("City or country")
+        self.profile_goals = QLineEdit(p.goals)
+        self.profile_goals.setPlaceholderText("What you want from this conversation")
+        self.profile_tone = QLineEdit(p.tone)
+        self.profile_tone.setPlaceholderText("e.g. polite, concise, friendly")
+        self.profile_summary = QPlainTextEdit(p.summary)
+        self.profile_summary.setPlaceholderText("A few sentences about you")
+        self.profile_summary.setFixedHeight(64)
+        form.addRow("Name", self.profile_name)
+        form.addRow("Role", self.profile_role)
+        form.addRow("Location", self.profile_location)
+        form.addRow("About you", self.profile_summary)
+        form.addRow("Your goal", self.profile_goals)
+        form.addRow("Reply tone", self.profile_tone)
+        self.profile_lists: dict[str, QPlainTextEdit] = {}
+        for attr, label, placeholder in self._PROFILE_LISTS:
+            edit = QPlainTextEdit("\n".join(getattr(p, attr)))
+            edit.setPlaceholderText(placeholder + "\n(one per line)")
+            edit.setFixedHeight(64)
+            self.profile_lists[attr] = edit
+            form.addRow(label, edit)
+        inner = QWidget()
+        inner.setLayout(form)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        scroll.setWidget(inner)
+        w, lay = QWidget(), QVBoxLayout()
+        w.setLayout(lay)
+        lay.addWidget(note)
+        lay.addWidget(scroll, 1)
+        return w
+
     def _window_tab(self) -> QWidget:
         u, p = self._config.ui, self._config.privacy
         w, form = QWidget(), QFormLayout()
@@ -388,7 +468,9 @@ class SettingsDialog(QDialog):
     def _save(self) -> None:
         c = self._config.model_dump()
         c["audio"].update(source=self.source.currentData(), device=self.device.currentData(),
-                          file=self.file.text().strip() or None)  # fmt: skip
+                          file=self.file.text().strip() or None,
+                          user_mic=self.user_mic.isChecked(),
+                          user_device=self.user_device.currentData())  # fmt: skip
         c["asr"].update(model=self.model.currentData(), device=self.asr_device.currentData(),
                         compute_type=self.compute_type.currentData(),
                         language=self.source_lang.currentData())  # fmt: skip
@@ -408,6 +490,15 @@ class SettingsDialog(QDialog):
                                 or SuggestionsConfig.model_fields["model"].default,
                                 conversation_type=self.conversation.currentData(),
                                 options=self.option_count.value())  # fmt: skip
+        c["profile"].update(
+            name=self.profile_name.text(),
+            role=self.profile_role.text(),
+            location=self.profile_location.text(),
+            summary=self.profile_summary.toPlainText(),
+            goals=self.profile_goals.text(),
+            tone=self.profile_tone.text(),
+            **{attr: edit.toPlainText().splitlines() for attr, edit in self.profile_lists.items()},
+        )
         c["ui"].update(opacity=self.opacity.value(), hide_from_capture=self.hide_capture.isChecked(),
                        hotkey_suggest=self.hotkey_suggest.text().strip(),
                        hotkey_toggle=self.hotkey_toggle.text().strip())  # fmt: skip

@@ -311,3 +311,37 @@ def test_error_body_read_failure_keeps_status(monkeypatch: pytest.MonkeyPatch) -
 
     monkeypatch.setattr("urllib.request.urlopen", fail)
     assert UrllibHttpClient().post_json("https://example.com", {}, timeout=1).status == 503
+
+
+def test_build_messages_labels_who_spoke() -> None:
+    from polyglot.core.models import Speaker
+
+    base = ctx()
+    user_turn = Utterance(
+        9, 0, 1, UtteranceStatus.FINAL, "Lidero un equipo", "es", speaker=Speaker.USER
+    )
+    c = SuggestionContext(base.target, (*base.history, user_turn), "Spanish", "English")
+    _, user = (m["content"] for m in build_messages(c))
+    assert "- Them: Hola  (Hello)" in user
+    assert "- User: Lidero un equipo" in user
+    assert "User is the person you are helping" in user
+
+
+def test_build_messages_includes_the_profile_when_set() -> None:
+    from polyglot.core.profile import UserProfile
+
+    profile = UserProfile(
+        name="Sam", role="Backend developer", hobbies=("cycling", "chess"), tone="polite"
+    )
+    c = SuggestionContext(ctx().target, (), "Spanish", "English", profile=profile)
+    system = build_messages(c)[0]["content"]
+    assert "About the user" in system
+    assert "- Name: Sam" in system and "- Role: Backend developer" in system
+    assert (
+        "- Hobbies: cycling; chess" in system and "- Preferred tone for replies: polite" in system
+    )
+    assert "never state personal facts that are not listed" in system
+
+
+def test_build_messages_without_a_profile_has_no_profile_section() -> None:
+    assert "About the user" not in build_messages(ctx())[0]["content"]

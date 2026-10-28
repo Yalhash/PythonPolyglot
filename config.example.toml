@@ -4,6 +4,8 @@
 source = "auto"
 ring_seconds = 30.0
 gap_fill = true
+user_mic = false      # also listen to my microphone (headphones recommended)
+# user_device = ""    # input device name or index for the microphone; default input if unset
 
 [vad]
 engine = "silero"
@@ -37,8 +39,27 @@ enabled = false
 model = "gpt-4.1-mini"  # gpt-4o-mini and gpt-4.1-mini retire 2027-01-14 (replacement: gpt-6-luna)
 timeout_s = 6.0
 conversation_type = "meeting"
-history = 6
+history = 6          # most utterances of earlier conversation to include
+history_chars = 3000 # soft cap on their total length (the newest is always kept)
 options = 2
+
+# What suggestions may say about you. Saved once, used every time. Sent to OpenAI with each
+# suggestion request: public, shareable details only (no health, politics, religion, money).
+# List fields hold up to 15 items of 120 characters; summary up to 500.
+[profile]
+name = ""
+role = ""
+location = ""
+summary = ""
+goals = ""           # what you want from the conversation, e.g. "get this job"
+tone = ""            # e.g. "polite, concise"
+languages = []       # e.g. ["English (native)", "Spanish (beginner)"]
+skills = []
+experience = []
+education = []
+hobbies = []
+interests = []
+talking_points = []  # other facts you are happy to mention
 
 [ui]
 opacity = 0.92

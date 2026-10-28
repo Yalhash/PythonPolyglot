@@ -17,7 +17,7 @@ pytest.importorskip("PyQt6")
 pytest.importorskip("pytestqt")
 
 from PyQt6.QtCore import QEvent, QThread, QTimer
-from PyQt6.QtWidgets import QApplication, QDialog, QWidget
+from PyQt6.QtWidgets import QApplication, QDialog, QLabel, QWidget
 
 from polyglot.adapters.fakes import NoopShield
 from polyglot.adapters.secrets import MemorySecretStore
@@ -319,6 +319,28 @@ def test_settings_dialog_builds_config_and_stores_keys(qtbot: Any) -> None:
     assert secrets.get(Secrets.OPENAI) == "sk-test" and dlg.keys_changed
 
 
+def test_settings_dialog_edits_and_saves_the_profile(qtbot: Any) -> None:
+    from polyglot.ui.qt.settings_dialog import SettingsDialog
+
+    cfg = AppConfig()
+    cfg.profile.name = "Sam"
+    cfg.profile.hobbies = ["chess"]
+    dlg = SettingsDialog(cfg, Secrets(MemorySecretStore(), environ={}), list)
+    qtbot.addWidget(dlg)
+    assert dlg.profile_name.text() == "Sam"  # what was saved is shown again
+    assert dlg.profile_lists["hobbies"].toPlainText() == "chess"
+    dlg.profile_role.setText("  Backend developer ")
+    dlg.profile_summary.setPlainText("I build APIs.")
+    dlg.profile_lists["hobbies"].setPlainText("chess\n\n cycling; trail running \n")
+    dlg.profile_lists["languages"].setPlainText("English (native)\nSpanish (beginner)")
+    dlg._save()
+    assert dlg.result_config is not None
+    p = dlg.result_config.profile
+    assert p.name == "Sam" and p.role == "Backend developer" and p.summary == "I build APIs."
+    assert p.hobbies == ["chess", "cycling; trail running"]  # one item per line
+    assert p.languages == ["English (native)", "Spanish (beginner)"]
+
+
 class FakeModelCatalog:
     def __init__(self, live: list[str] | None = None, error: str | None = None) -> None:
         from types import SimpleNamespace
@@ -450,3 +472,29 @@ def test_app_smoke_demo_mode(qtbot: Any, tmp_path: Path, caplog: pytest.LogCaptu
         QApplication.processEvents()
     unhandled = [r.getMessage() for r in caplog.records if r.levelno >= logging.CRITICAL]
     assert unhandled == []
+
+
+def test_the_users_own_lines_are_labelled_and_styled(window: Any) -> None:
+    window.upsert_row(RowVM(1, "hola"))
+    window.upsert_row(RowVM(2, "buenos días", mine=True))
+    theirs, mine = window._rows[1], window._rows[2]
+    assert theirs.who.isHidden() and not mine.who.isHidden()
+    assert mine.who.text() == "You" and mine.property("mine") is True
+    assert theirs.property("mine") is False
+
+
+def test_settings_dialog_saves_the_microphone_choice(qtbot: Any) -> None:
+    from polyglot.ui.qt.settings_dialog import SettingsDialog
+
+    devices = [{"id": 3, "name": "Headset Mic"}, {"id": 5, "name": "Webcam Mic"}]
+    dlg = SettingsDialog(AppConfig(), Secrets(MemorySecretStore(), environ={}), lambda: devices)
+    qtbot.addWidget(dlg)
+    assert not dlg.user_mic.isChecked() and not dlg.user_device.isEnabled()  # off, picker idle
+    warning = dlg.findChild(QLabel, "HintWarning")
+    assert warning is not None and "headphones" in warning.text().lower()
+    dlg.user_mic.setChecked(True)
+    assert dlg.user_device.isEnabled()
+    dlg.user_device.setCurrentIndex(dlg.user_device.findData("5"))
+    dlg._save()
+    assert dlg.result_config is not None
+    assert dlg.result_config.audio.user_mic and dlg.result_config.audio.user_device == "5"

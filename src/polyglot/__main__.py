@@ -57,7 +57,7 @@ def run_headless(config_path: Path | None, wav: Path | None, *, demo: bool, fast
         SuggestionsReady,
         UtteranceUpdated,
     )
-    from polyglot.core.models import UtteranceStatus
+    from polyglot.core.models import Speaker, UtteranceStatus
     from polyglot.wiring import build, build_demo
 
     cfg = load_config(config_path)
@@ -77,7 +77,8 @@ def run_headless(config_path: Path | None, wav: Path | None, *, demo: bool, fast
             ):
                 extra = f"  ->  {u.translation}" if u.translation else ""
                 err = f"  [{u.error.value}]" if u.error else ""
-                print(f"#{u.id} ({u.source_lang or '?'}) {u.text}{extra}{err}", flush=True)
+                who = "you: " if u.speaker is Speaker.USER else ""
+                print(f"#{u.id} ({u.source_lang or '?'}) {who}{u.text}{extra}{err}", flush=True)
         elif isinstance(ev, SuggestionsReady):
             for o in ev.suggestion.options:
                 print(f"   suggest: {o.source_text}  ({o.user_text})", flush=True)

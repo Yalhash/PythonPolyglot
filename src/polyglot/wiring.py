@@ -34,6 +34,7 @@ class Built:
     translation_enabled: bool = False
     suggestions_enabled: bool = False
     source_name: str = ""
+    user_source_name: str = ""  # empty when the microphone is off or unavailable
 
 
 def pipeline_config(cfg: AppConfig) -> PipelineConfig:
@@ -58,8 +59,10 @@ def pipeline_config(cfg: AppConfig) -> PipelineConfig:
         translate_timeout_s=cfg.translation.timeout_s,
         suggest_timeout_s=cfg.suggestions.timeout_s,
         suggestion_history=cfg.suggestions.history,
+        suggestion_history_chars=cfg.suggestions.history_chars,
         suggestion_options=cfg.suggestions.options,
         conversation_type=ConversationType(cfg.suggestions.conversation_type),
+        profile=cfg.profile.to_core(),
         ring_seconds=cfg.audio.ring_seconds,
         finals_queue_size=cfg.asr.queue_size,
         gap_fill=cfg.audio.gap_fill,
@@ -98,6 +101,36 @@ def build_source(cfg: AppConfig, warnings: list[str]) -> tuple[AudioSource, str]
         device = int(device)
     sd_src = SoundDeviceSource(device)
     return sd_src, sd_src.device_name
+
+
+def build_user_source(cfg: AppConfig, warnings: list[str]) -> tuple[AudioSource, str] | None:
+    """The user's own microphone, or None (off, or unusable: then a warning says why and
+    the app carries on listening to the other person)."""
+    from polyglot import platform
+
+    a = cfg.audio
+    if not a.user_mic or a.source == "file":  # a replayed file is not a live conversation
+        return None
+    main_is_input = a.source == "device" or (
+        a.source == "auto" and not platform.current().has_loopback
+    )
+    if main_is_input and (a.device or None) == (a.user_device or None):
+        warnings.append(
+            "The microphone is also the main audio input, so what the other person says "
+            "would be tagged as yours. Microphone listening is off; pick another device."
+        )
+        return None
+    try:
+        from polyglot.adapters.audio.sounddevice_source import SoundDeviceSource
+
+        device: int | str | None = a.user_device
+        if isinstance(device, str) and device.isdigit():
+            device = int(device)
+        src = SoundDeviceSource(device)
+    except (PolyglotError, ImportError, OSError) as exc:
+        warnings.append(f"Microphone unavailable ({exc}); replies will not hear what you say.")
+        return None
+    return src, src.device_name
 
 
 def build_vad(cfg: AppConfig, warnings: list[str]) -> VoiceActivityModel:
@@ -174,10 +207,12 @@ def build(
     from polyglot.adapters.audio.resample import make_resampler
 
     warnings: list[str] = []
+    user: tuple[AudioSource, str] | None = None
     if source is None:
         source, source_name = build_source(cfg, warnings)
+        user = build_user_source(cfg, warnings)
     else:
-        source_name = type(source).__name__
+        source_name = type(source).__name__  # a supplied source is not a live conversation
     translator = build_translator(cfg, secrets, warnings)
     suggester = build_suggester(cfg, secrets, warnings)
     tap = None
@@ -197,8 +232,17 @@ def build(
         segment_tap=tap,
         session=session,
         ids=ids,
+        user_source=user[0] if user else None,
+        user_vad=build_vad(cfg, []) if user else None,  # own instance: VADs keep state
     )
-    return Built(pipeline, warnings, translator is not None, suggester is not None, source_name)
+    return Built(
+        pipeline,
+        warnings,
+        translator is not None,
+        suggester is not None,
+        source_name,
+        user[1] if user else "",
+    )
 
 
 def build_demo(

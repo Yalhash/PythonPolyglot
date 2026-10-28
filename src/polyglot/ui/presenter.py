@@ -23,7 +23,7 @@ from polyglot.core.events import (
     UtteranceDiscarded,
     UtteranceUpdated,
 )
-from polyglot.core.models import ErrorKind, Utterance, UtteranceStatus
+from polyglot.core.models import ErrorKind, Speaker, Utterance, UtteranceStatus
 from polyglot.core.ports import ShieldStatus
 
 ERROR_TEXT: dict[ErrorKind, str] = {
@@ -50,6 +50,7 @@ class RowVM:
     note: str | None = None  # "listening…", "translating…", "translation failed: …"
     partial: bool = False
     failed: bool = False
+    mine: bool = False  # said by the user (from their microphone), not the other person
 
 
 @dataclass(frozen=True)
@@ -245,7 +246,8 @@ class Presenter:
             note = None
         elif failed:
             note = ERROR_TEXT.get(u.error or ErrorKind.INTERNAL, "failed")
-        elif u.status is UtteranceStatus.FINAL:
+        elif u.status is UtteranceStatus.FINAL and u.speaker is Speaker.OTHER:
+            # (the user's own lines are never translated, so never "translating…")
             if u.error is not None:
                 note = f"translation failed: {ERROR_TEXT[u.error]}"
             elif self.translation_enabled and not languages.same_language(
@@ -259,6 +261,7 @@ class Presenter:
             note=note,
             partial=u.status is UtteranceStatus.PARTIAL,
             failed=failed,
+            mine=u.speaker is Speaker.USER,
         )
 
     def language_label(self, language: str | None, locked: bool) -> str:
@@ -280,7 +283,11 @@ class Presenter:
         return u.text if u is not None else ""
 
     def _latest_final(self) -> int:
-        finals = [u.id for u in self.rows.values() if u.is_final and u.text]
+        # Only the other person's sentences make a suggestion stale: the user answering is
+        # not "something new to reply to".
+        finals = [
+            u.id for u in self.rows.values() if u.is_final and u.text and u.speaker is Speaker.OTHER
+        ]
         return max(finals, default=0)
 
     def _show_suggestion(self, vm: SuggestionVM, *, stale: bool | None = None) -> None:

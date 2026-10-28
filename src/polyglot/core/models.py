@@ -7,11 +7,14 @@ so a value handed to another thread can never change underneath it.
 from __future__ import annotations
 
 import itertools
-from dataclasses import dataclass, replace
+import threading
+from dataclasses import dataclass, field, replace
 from enum import Enum
 
 import numpy as np
 import numpy.typing as npt
+
+from polyglot.core.profile import UserProfile
 
 #: Every stage after the front end works at this rate, mono, float32 in [-1, 1].
 SAMPLE_RATE = 16_000
@@ -30,6 +33,14 @@ class UtteranceStatus(str, Enum):
     FINAL = "final"  # endpoint reached, text fixed
     TRANSLATED = "translated"  # translation attached
     FAILED = "failed"  # a stage failed; ``error`` says which way
+
+
+class Speaker(str, Enum):
+    """Who spoke an utterance. Replies are suggested for ``OTHER``; ``USER`` turns (from
+    the user's own microphone, once there is one) only add context."""
+
+    OTHER = "other"
+    USER = "user"
 
 
 class ErrorKind(str, Enum):
@@ -62,6 +73,7 @@ class SpeechSegment:
     t_end: float
     is_final: bool
     version: int = 0
+    speaker: Speaker = Speaker.OTHER  # which audio stream it came from
 
     @property
     def duration(self) -> float:
@@ -77,7 +89,7 @@ class Transcript:
 
 @dataclass(frozen=True)
 class Utterance:
-    """One continuous stretch of speech by the other person, bounded by pauses."""
+    """One continuous stretch of speech by one speaker, bounded by pauses."""
 
     id: int
     t_start: float
@@ -88,6 +100,7 @@ class Utterance:
     translation: str | None = None
     error: ErrorKind | None = None
     partial_version: int = -1
+    speaker: Speaker = Speaker.OTHER
 
     def evolve(self, **changes: object) -> Utterance:
         return replace(self, **changes)  # type: ignore[arg-type]
@@ -133,13 +146,19 @@ class SuggestionContext:
     user_language: str  # full name, e.g. "English"
     conversation_type: ConversationType = ConversationType.MEETING
     max_options: int = 2
+    profile: UserProfile = field(default_factory=UserProfile)
 
 
 class IdSource:
-    """Monotonic utterance IDs, starting at 1. IDs define spoken order."""
+    """Monotonic utterance IDs, starting at 1. IDs define spoken order.
+
+    One source serves every audio stream (the other person's and the user's microphone),
+    each on its own thread, so an ID is drawn under a lock."""
 
     def __init__(self, start: int = 1) -> None:
         self._next = itertools.count(start)
+        self._lock = threading.Lock()
 
     def __call__(self) -> int:
-        return next(self._next)
+        with self._lock:
+            return next(self._next)

@@ -180,3 +180,28 @@ def test_detach_stops_all_view_updates() -> None:
     p.handle(u(1, UtteranceStatus.FINAL, "hola"))
     p.handle(LanguageChanged("es", locked=True))
     assert view.calls == [] and view.rows == {}
+
+
+# ------------------------------------------------------------------ the user's own lines
+def test_the_users_own_lines_are_marked_and_never_translating() -> None:
+    from polyglot.core.models import Speaker
+
+    p, view, _ = make()
+    p.handle(u(1, UtteranceStatus.FINAL, "hola", source_lang="es"))
+    p.handle(u(2, UtteranceStatus.FINAL, "buenos dias", source_lang="es", speaker=Speaker.USER))
+    assert view.rows[1].note == "translating…" and not view.rows[1].mine
+    assert view.rows[2].mine and view.rows[2].note is None  # no translation will come
+
+
+def test_only_their_sentences_make_a_suggestion_stale() -> None:
+    from polyglot.core.models import Speaker
+
+    p, view, _ = make()
+    p.handle(u(1, UtteranceStatus.FINAL, "¿Qué opina?", source_lang="es"))
+    p.handle(SuggestionStarted(1))
+    p.handle(SuggestionsReady(Suggestion(1, (ReplyOption("Creo que sí", "I think so"),))))
+    assert view.suggestion is not None and not view.suggestion.stale
+    p.handle(u(2, UtteranceStatus.FINAL, "Creo que sí", source_lang="es", speaker=Speaker.USER))
+    assert not view.suggestion.stale  # the user answering is not something new to reply to
+    p.handle(u(3, UtteranceStatus.FINAL, "Interesante", source_lang="es"))
+    assert view.suggestion.stale

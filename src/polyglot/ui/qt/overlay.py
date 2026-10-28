@@ -55,11 +55,13 @@ class RowWidget(QFrame):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 6, 10, 6)
         layout.setSpacing(2)
+        self.who = _label("You", "Who", selectable=False)
         self.original = _label(name="Original")
         self.translation = _label(name="Translation")
         self.note = _label(name="Note", selectable=False)
-        for w in (self.original, self.translation, self.note):
+        for w in (self.who, self.original, self.translation, self.note):
             layout.addWidget(w)
+        self.who.setVisible(False)
 
     def apply(self, vm: RowVM) -> None:
         self.original.setText(vm.original or "…")
@@ -69,6 +71,8 @@ class RowWidget(QFrame):
         self.note.setVisible(bool(vm.note))
         self.setProperty("partial", vm.partial)
         self.setProperty("failed", vm.failed)
+        self.setProperty("mine", vm.mine)
+        self.who.setVisible(vm.mine)
         _repolish(self)
 
 
