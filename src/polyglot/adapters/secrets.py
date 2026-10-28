@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 
 log = logging.getLogger(__name__)
@@ -34,10 +35,8 @@ class KeyringSecretStore:
         if value:
             keyring.set_password(self._service, name, value)
             return
-        try:
+        with contextlib.suppress(PasswordDeleteError):  # nothing stored is fine
             keyring.delete_password(self._service, name)
-        except PasswordDeleteError:
-            pass  # nothing stored
 
 
 class MemorySecretStore:

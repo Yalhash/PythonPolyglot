@@ -9,6 +9,7 @@ fills such gaps with silence so utterances still end (``PipelineConfig.gap_fill`
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import threading
 from typing import Any
@@ -157,7 +158,5 @@ class WasapiLoopbackSource:
             self._close()
 
     def __del__(self) -> None:  # pragma: no cover - best effort
-        try:
+        with contextlib.suppress(Exception):
             self._pa.terminate()
-        except Exception:
-            pass

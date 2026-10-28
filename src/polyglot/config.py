@@ -11,6 +11,7 @@ API keys are not part of the config. They live in the OS keyring (see ``Secrets`
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import sys
@@ -154,10 +155,8 @@ def _env_overrides(environ: Mapping[str, str]) -> dict[str, dict[str, Any]]:
         if section not in SECTIONS:
             continue
         value: Any = raw
-        try:  # numbers, booleans, null as JSON; anything else stays a string
+        with contextlib.suppress(json.JSONDecodeError):  # numbers/bools/null as JSON
             value = json.loads(raw)
-        except json.JSONDecodeError:
-            pass
         if isinstance(value, (dict, list)):
             value = raw
         out.setdefault(section, {})[field] = value

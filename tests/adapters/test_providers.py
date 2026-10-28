@@ -91,7 +91,6 @@ def test_refuses_plain_http() -> None:
     ("raised", "expected"),
     [
         (TimeoutError("t"), ProviderTimeout),
-        (TimeoutError("t"), ProviderTimeout),
         (urllib.error.URLError(TimeoutError("t")), ProviderTimeout),
         (urllib.error.URLError(ConnectionRefusedError("no")), ProviderUnavailable),
         (OSError("reset"), ProviderUnavailable),
