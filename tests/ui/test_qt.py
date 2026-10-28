@@ -380,8 +380,8 @@ def test_model_dropdowns_offer_the_list_and_accept_a_typed_model(qtbot: Any) -> 
     )
     qtbot.addWidget(dlg)
     assert _items(dlg.translate_model) == ["gpt-6-luna", "gpt-4o-mini", "gpt-4.1-mini"]
-    assert dlg.translate_model.currentText() == "gpt-4o-mini"  # the default is kept
-    assert dlg.suggest_model.currentText() == "gpt-4.1-mini"
+    assert dlg.translate_model.currentText() == "gpt-6-luna"  # the default is kept
+    assert dlg.suggest_model.currentText() == "gpt-6-luna"
     assert "API key" in dlg.models_status.text() and catalog.fetched == []  # no key: no call
     dlg.suggest_model.setCurrentText("gpt-9-preview")  # any model ID can be typed
     dlg.translate_model.setCurrentIndex(0)
@@ -399,13 +399,14 @@ def test_model_dropdowns_load_the_accounts_models_in_the_background(qtbot: Any) 
     secrets = Secrets(MemorySecretStore(), environ={})
     secrets.set(Secrets.OPENAI, "sk-test")
     catalog = FakeModelCatalog(live=["gpt-6-luna", "gpt-6.1-sol"])
-    dlg = SettingsDialog(AppConfig(), secrets, list, models=catalog)
+    cfg = AppConfig.model_validate({"translation": {"model": "gpt-4o"}})
+    dlg = SettingsDialog(cfg, secrets, list, models=catalog)
     qtbot.addWidget(dlg)
     qtbot.waitUntil(lambda: "2 models" in dlg.models_status.text(), timeout=3000)
     assert catalog.fetched == ["sk-test"]
     # The current model is not in the account's list: kept, and marked as such.
-    assert _items(dlg.translate_model) == ["gpt-6-luna", "gpt-6.1-sol", "gpt-4o-mini"]
-    assert dlg.translate_model.currentText() == "gpt-4o-mini"
+    assert _items(dlg.translate_model) == ["gpt-6-luna", "gpt-6.1-sol", "gpt-4o"]
+    assert dlg.translate_model.currentText() == "gpt-4o"
     tip = dlg.translate_model.itemData(2, Qt.ItemDataRole.ToolTipRole)
     assert "Not in your account" in tip
     assert "gpt-6.1-sol" in _items(dlg.suggest_model)

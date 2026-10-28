@@ -295,3 +295,21 @@ def test_microphone_device_may_be_a_number(tmp_path: Path) -> None:
     path = tmp_path / "config.toml"
     path.write_text("[audio]\nuser_mic = true\nuser_device = 4\n", encoding="utf-8")
     assert load_config(path, environ={}).audio.user_device == "4"
+
+
+def test_defaults_are_the_replacement_for_the_retiring_models() -> None:
+    cfg = AppConfig()
+    assert cfg.translation.model == "gpt-6-luna" and cfg.suggestions.model == "gpt-6-luna"
+
+
+@pytest.mark.parametrize("old", ["gpt-4o-mini", "gpt-4.1-mini"])
+def test_saved_retiring_defaults_are_moved_to_the_replacement(old: str) -> None:
+    cfg = AppConfig.model_validate({"translation": {"model": old}, "suggestions": {"model": old}})
+    assert cfg.translation.model == "gpt-6-luna" and cfg.suggestions.model == "gpt-6-luna"
+
+
+def test_other_saved_models_are_kept() -> None:
+    cfg = AppConfig.model_validate(
+        {"translation": {"model": "gpt-4o"}, "suggestions": {"model": "gpt-6.1-sol"}}
+    )
+    assert cfg.translation.model == "gpt-4o" and cfg.suggestions.model == "gpt-6.1-sol"

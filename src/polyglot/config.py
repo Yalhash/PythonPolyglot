@@ -114,22 +114,42 @@ class AsrConfig(_Section):
         return "auto" if value == "default" else value
 
 
+#: The two models earlier versions defaulted to. OpenAI removes them from the API on
+#: 2027-01-14 and names gpt-6-luna as the replacement, so a saved config that still holds
+#: one of them (which the user never chose) is moved over when it is loaded.
+_RETIRED_DEFAULTS = ("gpt-4o-mini", "gpt-4.1-mini")
+
+
+def _replace_retired_default(value: object) -> object:
+    return "gpt-6-luna" if value in _RETIRED_DEFAULTS else value
+
+
 class TranslationConfig(_Section):
     enabled: bool = False  # cloud calls are opt-in
     provider: Literal["openai", "google"] = "openai"
     target_language: str = "en"
-    model: str = "gpt-4o-mini"
+    model: str = "gpt-6-luna"
     timeout_s: float = Field(3.0, gt=0.0, le=30.0)
+
+    @field_validator("model", mode="before")
+    @classmethod
+    def _retired_default(cls, value: object) -> object:
+        return _replace_retired_default(value)
 
 
 class SuggestionsConfig(_Section):
     enabled: bool = False  # cloud calls are opt-in
-    model: str = "gpt-4.1-mini"
+    model: str = "gpt-6-luna"
     timeout_s: float = Field(6.0, gt=0.0, le=60.0)
     conversation_type: Literal["interview", "meeting", "casual"] = "meeting"
     history: int = Field(6, ge=0, le=30)  # most utterances of earlier conversation
     history_chars: int = Field(3000, ge=200, le=20000)  # soft cap on their total length
     options: int = Field(2, ge=1, le=3)
+
+    @field_validator("model", mode="before")
+    @classmethod
+    def _retired_default(cls, value: object) -> object:
+        return _replace_retired_default(value)
 
 
 _Short = Annotated[str, StringConstraints(strip_whitespace=True, max_length=120)]

@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from polyglot.adapters.http import HttpClient, UrllibHttpClient
+from polyglot.adapters.http import HttpClient, HttpsClient
 from polyglot.adapters.openai_models import chat_options
 from polyglot.adapters.translate.openai import DEFAULT_BASE_URL, chat_text
 from polyglot.core.errors import BadResponse
@@ -101,12 +101,12 @@ class OpenAISuggester:
         self,
         api_key: str,
         *,
-        model: str = "gpt-4.1-mini",
+        model: str = "gpt-6-luna",
         base_url: str = DEFAULT_BASE_URL,
         http: HttpClient | None = None,
     ) -> None:
         self._key, self.model, self._base = api_key, model, base_url
-        self._http = http or UrllibHttpClient()
+        self._http = http or HttpsClient()
 
     def suggest(self, context: SuggestionContext, *, timeout: float) -> tuple[ReplyOption, ...]:
         payload = {

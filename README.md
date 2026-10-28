@@ -57,9 +57,15 @@ macOS Keychain), never in a file. For development, `POLYGLOT_OPENAI_API_KEY` /
 
 Settings → Translation and Settings → Suggestions each have a model dropdown. It starts
 with a short built-in list and, once an OpenAI key is set, loads the chat models your key
-can actually use (Refresh reloads it). Any model ID can also be typed in. Defaults:
-`gpt-4o-mini` for translation and `gpt-4.1-mini` for suggestions. OpenAI retires both on
-2027-01-14 and names `gpt-6-luna` as the replacement.
+can actually use (Refresh reloads it). Any model ID can also be typed in. The default for
+both is `gpt-6-luna`, the replacement OpenAI names for `gpt-4o-mini` and `gpt-4.1-mini`,
+which it retires on 2027-01-14. A saved setting that still holds one of those two is moved
+to `gpt-6-luna` when the config is loaded.
+
+Translation and suggestions are separate settings, so they can use different models:
+a larger model for suggestions (for example `gpt-6.1-sol`) leaves translation fast.
+Requests reuse one HTTPS connection per worker thread, so only the first one pays for
+the connection setup.
 
 Older models get a `temperature`; reasoning models get the lowest `reasoning_effort`
 that fits the job instead (`none` for translation, `low` for suggestions). If a model
@@ -87,7 +93,7 @@ conversation. Fill it in once; it is saved in `config.toml` (the `[profile]` sec
 used every time. Suggestions also see what was said earlier in the conversation, up to
 `suggestions.history` utterances or `suggestions.history_chars` characters.
 
-Everything in your profile is sent sent to the AI provider with each suggestion request, so it only has
+Everything in your profile is sent to OpenAI with each suggestion request, so it only has
 fields for things you would say out loud to the other person. There is deliberately no field
 for health, politics, religion, money or other private details, and the free-text fields are
 yours to keep clean. Profile edits take effect on the next suggestion with no restart.

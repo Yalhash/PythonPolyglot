@@ -20,7 +20,7 @@ import threading
 from dataclasses import dataclass
 from typing import Any
 
-from polyglot.adapters.http import HttpClient, HttpResponse, UrllibHttpClient, raise_for_status
+from polyglot.adapters.http import HttpClient, HttpResponse, HttpsClient, raise_for_status
 from polyglot.core.errors import BadResponse
 
 DEFAULT_BASE_URL = "https://api.openai.com/v1"
@@ -169,7 +169,7 @@ def list_chat_models(
     timeout: float = 5.0,
 ) -> list[ModelInfo]:
     """The text chat models this API key can use (``GET /v1/models``, filtered)."""
-    resp = (http or UrllibHttpClient()).get_json(
+    resp = (http or HttpsClient()).get_json(
         f"{base_url.rstrip('/')}/models",
         headers={"Authorization": f"Bearer {api_key}"},
         timeout=timeout,
