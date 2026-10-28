@@ -176,6 +176,7 @@ def test_shield_filter_never_creates_a_native_handle(qtbot: Any) -> None:
     assert filt.shield_widget(w) is None
     assert shield.calls == []
     assert not w.testAttribute(Qt.WidgetAttribute.WA_WState_Created)  # still not created
+    assert w.windowHandle() is None
     w.show()
     qtbot.waitExposed(w)
     assert filt.shield_widget(w) is ShieldStatus.HIDDEN

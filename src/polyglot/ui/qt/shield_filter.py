@@ -6,10 +6,10 @@ dialog opened during a screen share. This event filter is installed on the
 QApplication and shields each window when it is shown, and again whenever Qt replaces
 its native handle (``WinIdChange``).
 
-The handle is read with ``internalWinId()``, never ``winId()``: ``winId()`` *creates* a
-native window when there is none, and on a window that is half created or already being
-torn down (a tooltip during a click) PyQt returns ``None`` for it. A window without a
-handle yet is skipped; Qt sends ``WinIdChange`` once the handle exists.
+``winId()`` is only called once the native window exists: called earlier it *creates*
+one, and on a window that is half created or already being torn down (a tooltip during a
+click) PyQt returns ``None``. A window without a handle yet is skipped; Qt sends
+``WinIdChange`` once the handle exists.
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ import logging
 from collections.abc import Callable
 
 from PyQt6 import sip
-from PyQt6.QtCore import QEvent, QObject, pyqtSignal
+from PyQt6.QtCore import QEvent, QObject, Qt, pyqtSignal
 from PyQt6.QtWidgets import QWidget
 
 from polyglot.core.ports import ShieldStatus, WindowShield
@@ -30,11 +30,19 @@ _ORDER = {ShieldStatus.HIDDEN: 0, ShieldStatus.UNSUPPORTED: 1, ShieldStatus.FAIL
 
 
 def native_handle(widget: QWidget) -> int | None:
-    """The widget's existing native window handle, or None. Never creates one."""
+    """The widget's existing native window handle, or None. Never creates one.
+
+    ``winId()`` only returns the existing handle once Qt has created the native window
+    (``WA_WState_Created`` and a ``windowHandle()``); before that it would create one.
+    """
     if sip.isdeleted(widget):
         return None
-    handle = widget.internalWinId()
-    if handle is None:
+    if not widget.testAttribute(Qt.WidgetAttribute.WA_WState_Created):
+        return None
+    if widget.windowHandle() is None:  # no native window (yet, or any more)
+        return None
+    handle = widget.winId()
+    if handle is None:  # PyQt returns None for a null handle
         return None
     value = int(handle)
     return value or None
