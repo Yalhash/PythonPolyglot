@@ -25,6 +25,7 @@ from PyQt6.QtWidgets import (
     QScrollArea,
     QSizeGrip,
     QSizePolicy,
+    QSplitter,
     QVBoxLayout,
     QWidget,
 )
@@ -53,6 +54,8 @@ def _label(text: str = "", name: str = "", *, wrap: bool = True, selectable: boo
 #: the live text of the newest sentence changes, and glides there instead of jumping.
 _SETTLE_MS = 250
 _GLIDE_MS = 220
+#: Space kept under the newest bubble, so it ends a little above the window's edge.
+_BOTTOM_GAP = 28
 
 
 def _repolish(widget: QWidget) -> None:
@@ -232,11 +235,12 @@ class OverlayWindow(QWidget):
         holder = QWidget()
         holder.setObjectName("TranscriptBody")
         self.rows_layout = QVBoxLayout(holder)
-        self.rows_layout.setContentsMargins(6, 6, 6, 6)
+        # The extra space at the bottom keeps the newest bubble clear of the window's edge.
+        self.rows_layout.setContentsMargins(6, 6, 6, _BOTTOM_GAP)
         self.rows_layout.setSpacing(6)
         self.rows_layout.addStretch(1)
         self.transcript.setWidget(holder)
-        root.addWidget(self.transcript, 3)
+        self.transcript.setMinimumHeight(90)
         bar = self.transcript.verticalScrollBar()
         if bar is not None:
             self._glide = QPropertyAnimation(bar, b"value", self)
@@ -251,9 +255,17 @@ class OverlayWindow(QWidget):
         self.transcript.viewport().installEventFilter(self)  # mouse wheel and touchpad
         self._show_lock()
 
-        self.suggestions = QFrame()
+        # Suggestions get a pane of their own below the transcript. A splitter gives each its
+        # own rectangle, so one can never cover the other, and the divider can be dragged.
+        self.suggestions = QScrollArea()  # the pane; scrolls if the replies are long
         self.suggestions.setObjectName("Suggestions")
-        sl = QVBoxLayout(self.suggestions)
+        self.suggestions.setWidgetResizable(True)
+        self.suggestions.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.suggestions.setMinimumHeight(70)
+        body = QFrame()
+        body.setObjectName("SuggestionsBody")
+        self.suggestions.setWidget(body)
+        sl = QVBoxLayout(body)
         sl.setContentsMargins(10, 8, 10, 8)
         sl.setSpacing(6)
         self.reply_to = _label("", "ReplyTo")
@@ -268,7 +280,13 @@ class OverlayWindow(QWidget):
         sl.addWidget(self.suggest_message)
         sl.addWidget(self.stale)
         self.suggestions.hide()
-        root.addWidget(self.suggestions, 2)
+        self.panes = QSplitter(Qt.Orientation.Vertical)
+        self.panes.setChildrenCollapsible(False)
+        self.panes.addWidget(self.transcript)
+        self.panes.addWidget(self.suggestions)
+        self.panes.setStretchFactor(0, 3)
+        self.panes.setStretchFactor(1, 2)
+        root.addWidget(self.panes, 1)
 
         footer = QWidget()
         footer.setObjectName("Footer")
@@ -312,30 +330,50 @@ class OverlayWindow(QWidget):
         self.lock_button.setProperty("locked", locked)
         _repolish(self.lock_button)
 
+    def _follow_target(self) -> int | None:
+        """The scroll position that puts the newest bubble just above the bottom edge.
+
+        Computed from that bubble's own geometry instead of the scroll bar's maximum: the
+        maximum is the bottom of the whole scrolled widget, which can sit well below the
+        last bubble (spare space left by wrapped text, the stretch below the rows), so
+        scrolling to it leaves the newest sentences off the top of the view.
+        """
+        bar = self.transcript.verticalScrollBar()
+        if bar is None or not self._order:
+            return None
+        self.rows_layout.activate()  # make sure the geometry below is current
+        newest = self._rows[self._order[-1]]
+        bottom = newest.y() + newest.height()  # in the scrolled widget's coordinates
+        view = self.transcript.viewport().height()
+        return max(0, min(bar.maximum(), bottom + _BOTTOM_GAP - view))
+
     def _scroll_to_bottom(self) -> None:
         """Jump (no animation) to the newest sentence."""
         self._glide.stop()
         bar = self.transcript.verticalScrollBar()
-        if bar is not None:
-            bar.setValue(bar.maximum())
+        target = self._follow_target()
+        if bar is not None and target is not None:
+            bar.setValue(target)
 
-    def _on_range_changed(self, _low: int, high: int) -> None:
+    def _on_range_changed(self, _low: int, _high: int) -> None:
         # The content changed size (new text, a new bubble, a resize). Moving only matters
-        # once its end is below the window's bottom edge; and not on every change, because
-        # live text grows many times a second. One timer batches those changes.
-        if not self._follow.locked:
+        # when the newest bubble is not where it should be, and not on every change,
+        # because live text grows many times a second. One timer batches those changes.
+        if not self._follow.locked or self._settle.isActive():
             return
         bar = self.transcript.verticalScrollBar()
-        if bar is not None and bar.value() < high and not self._settle.isActive():
+        target = self._follow_target()
+        if bar is not None and target is not None and target != bar.value():
             self._settle.start()
 
     def _glide_to_bottom(self) -> None:
         bar = self.transcript.verticalScrollBar()
-        if bar is None or not self._follow.locked or bar.value() >= bar.maximum():
+        target = self._follow_target()
+        if bar is None or target is None or not self._follow.locked or target == bar.value():
             return
         self._glide.stop()
         self._glide.setStartValue(bar.value())
-        self._glide.setEndValue(bar.maximum())
+        self._glide.setEndValue(target)
         self._glide.start()
 
     def _on_user_scroll(self, _action: int = 0) -> None:
@@ -391,7 +429,10 @@ class OverlayWindow(QWidget):
         self.suggest_message.setText(message)
         self.suggest_message.setVisible(bool(message))
         self.stale.setVisible(vm.stale and not vm.loading)
-        self.suggestions.show()
+        if self.suggestions.isHidden():
+            self.suggestions.show()
+            total = self.panes.height()  # first appearance: 60 / 40 until the user drags it
+            self.panes.setSizes([total * 3 // 5, total - total * 3 // 5])
 
     def set_status(self, vm: StatusVM) -> None:
         self.status.setText(vm.text)

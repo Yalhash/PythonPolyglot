@@ -603,7 +603,27 @@ def test_transcript_follows_the_latest_sentence_by_default(qtbot: Any) -> None:
     assert window.locked and window.lock_button.text() == "🔒"
     _rows(window, 12)
     bar = window.transcript.verticalScrollBar()
-    qtbot.waitUntil(lambda: bar.maximum() > 0 and bar.value() == bar.maximum(), timeout=3000)
+    qtbot.waitUntil(lambda: bar.maximum() > 0 and abs(_newest_gap(window) - 28) <= 2, timeout=3000)
+
+
+def _newest_gap(window: Any) -> int:
+    """Pixels between the newest bubble's bottom and the bottom of the visible area."""
+    newest = window._rows[window._order[-1]]
+    bar = window.transcript.verticalScrollBar()
+    return int(bar.value() + window.transcript.viewport().height() - (newest.y() + newest.height()))
+
+
+def test_newest_bubble_ends_just_above_the_bottom_edge(qtbot: Any) -> None:
+    from polyglot.config import UiConfig
+    from polyglot.ui.qt.overlay import _BOTTOM_GAP, OverlayWindow
+
+    window = OverlayWindow(UiConfig(height=360))
+    qtbot.addWidget(window)
+    window.show()
+    _rows(window, 30)  # far more than fits
+    qtbot.waitUntil(lambda: abs(_newest_gap(window) - _BOTTOM_GAP) <= 2, timeout=3000)
+    _rows(window, 31)
+    qtbot.waitUntil(lambda: abs(_newest_gap(window) - _BOTTOM_GAP) <= 2, timeout=3000)
 
 
 def test_scrolling_unlocks_and_the_button_relocks(qtbot: Any) -> None:
@@ -617,7 +637,7 @@ def test_scrolling_unlocks_and_the_button_relocks(qtbot: Any) -> None:
     window.show()
     _rows(window, 12)
     bar = window.transcript.verticalScrollBar()
-    qtbot.waitUntil(lambda: bar.maximum() > 0 and bar.value() == bar.maximum(), timeout=3000)
+    qtbot.waitUntil(lambda: bar.maximum() > 0 and abs(_newest_gap(window) - 28) <= 2, timeout=3000)
 
     bar.triggerAction(QAbstractSlider.SliderAction.SliderPageStepSub)  # as if the user scrolled
     assert not window.locked and window.lock_button.text() == "🔓"
@@ -628,7 +648,7 @@ def test_scrolling_unlocks_and_the_button_relocks(qtbot: Any) -> None:
 
     window.lock_button.click()
     assert window.locked and window.lock_button.text() == "🔒"
-    qtbot.waitUntil(lambda: bar.value() == bar.maximum(), timeout=3000)
+    qtbot.waitUntil(lambda: abs(_newest_gap(window) - 28) <= 2, timeout=3000)
 
 
 def test_toggle_lock_is_the_hotkey_entry_point(qtbot: Any) -> None:
@@ -641,3 +661,26 @@ def test_toggle_lock_is_the_hotkey_entry_point(qtbot: Any) -> None:
     assert not window.locked
     window.toggle_lock()
     assert window.locked
+
+
+def test_suggestions_have_their_own_pane_below_the_transcript(qtbot: Any) -> None:
+    from polyglot.config import UiConfig
+    from polyglot.ui.presenter import OptionVM, SuggestionVM
+    from polyglot.ui.qt.overlay import OverlayWindow
+
+    window = OverlayWindow(UiConfig(height=520))
+    qtbot.addWidget(window)
+    window.show()
+    _rows(window, 6)
+    long = "A long suggested reply that wraps over several lines. " * 4
+    window.show_suggestions(
+        SuggestionVM(
+            visible=True,
+            reply_to="hola",
+            options=(OptionVM(say=long, means=long), OptionVM(say=long, means=long)),
+        )
+    )
+    qtbot.wait(50)
+    top, bottom = window.transcript.geometry(), window.suggestions.geometry()
+    assert top.bottom() < bottom.top()  # side by side vertically: no overlap
+    assert window.transcript.height() >= 90 and window.suggestions.height() >= 70
