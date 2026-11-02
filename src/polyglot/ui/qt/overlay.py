@@ -252,7 +252,9 @@ class OverlayWindow(QWidget):
             self._settle.timeout.connect(self._glide_to_bottom)
             bar.rangeChanged.connect(self._on_range_changed)  # the content grew or shrank
             bar.actionTriggered.connect(self._on_user_scroll)  # dragging, keys, arrows
-        self.transcript.viewport().installEventFilter(self)  # mouse wheel and touchpad
+        viewport = self.transcript.viewport()
+        if viewport is not None:
+            viewport.installEventFilter(self)  # mouse wheel and touchpad
         self._show_lock()
 
         # Suggestions get a pane of their own below the transcript. A splitter gives each its
@@ -337,12 +339,13 @@ class OverlayWindow(QWidget):
         scrolling to it leaves the newest sentences off the top of the view.
         """
         bar = self.transcript.verticalScrollBar()
-        if bar is None or not self._order:
+        viewport = self.transcript.viewport()
+        if bar is None or viewport is None or not self._order:
             return None
         self.rows_layout.activate()  # make sure the geometry below is current
         newest = self._rows[self._order[-1]]
         bottom = newest.y() + newest.height()  # in the scrolled widget's coordinates
-        view = self.transcript.viewport().height()
+        view = viewport.height()
         return max(0, min(bar.maximum(), bottom + _BOTTOM_GAP - view))
 
     def _scroll_to_bottom(self) -> None:
