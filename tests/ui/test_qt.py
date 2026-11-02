@@ -684,3 +684,31 @@ def test_suggestions_have_their_own_pane_below_the_transcript(qtbot: Any) -> Non
     top, bottom = window.transcript.geometry(), window.suggestions.geometry()
     assert top.bottom() < bottom.top()  # side by side vertically: no overlap
     assert window.transcript.height() >= 90 and window.suggestions.height() >= 70
+
+
+def test_suggestions_panel_is_sized_to_its_replies(qtbot: Any) -> None:
+    from polyglot.config import UiConfig
+    from polyglot.ui.presenter import OptionVM, SuggestionVM
+    from polyglot.ui.qt.overlay import OverlayWindow
+
+    window = OverlayWindow(UiConfig(height=700))
+    qtbot.addWidget(window)
+    window.show()
+    window.show_suggestions(
+        SuggestionVM(
+            reply_to="Quelles sont vos loisirs ?",
+            options=(
+                OptionVM(say="Je fais du Muay Thai et j'aime lire.", means="I do Muay Thai."),
+                OptionVM(say="J'aime relier des livres.", means="I enjoy bookbinding."),
+            ),
+        )
+    )
+    # The panel is as tall as its replies need (no scrolling, nothing cut off).
+    layout = window.suggestions.layout()
+    qtbot.waitUntil(
+        lambda: window.suggestions.height() >= layout.totalHeightForWidth(window.panes.width()),
+        timeout=3000,
+    )
+    # No empty band between the "Replying to" line and the first reply.
+    gap = window._reply_gap()
+    assert gap <= 12

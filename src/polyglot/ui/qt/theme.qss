@@ -46,8 +46,7 @@
 #MicTestStatus[level="warn"] { color: #e3b341; }
 #MicTestStatus[level="error"] { color: #f0705f; }
 
-#Suggestions, #SuggestionsBody { background: #1b1e24; border: none; }
-#Suggestions { border-top: 1px solid #2c3039; }
+#Suggestions { background: #1b1e24; border: none; border-top: 1px solid #2c3039; }
 QSplitter::handle { background: #2c3039; height: 5px; }
 #ReplyTo { color: #9aa0aa; font-size: 9pt; }
 #Option { background: #232733; border-radius: 6px; }

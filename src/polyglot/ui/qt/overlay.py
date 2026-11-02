@@ -16,7 +16,7 @@ from PyQt6.QtCore import (
     QTimer,
     pyqtSignal,
 )
-from PyQt6.QtGui import QGuiApplication, QKeySequence, QMouseEvent, QShortcut
+from PyQt6.QtGui import QGuiApplication, QKeySequence, QMouseEvent, QResizeEvent, QShortcut
 from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -257,15 +257,10 @@ class OverlayWindow(QWidget):
 
         # Suggestions get a pane of their own below the transcript. A splitter gives each its
         # own rectangle, so one can never cover the other, and the divider can be dragged.
-        self.suggestions = QScrollArea()  # the pane; scrolls if the replies are long
+        self.suggestions = QFrame()  # a plain panel: no scrolling, sized to its replies
         self.suggestions.setObjectName("Suggestions")
-        self.suggestions.setWidgetResizable(True)
-        self.suggestions.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.suggestions.setMinimumHeight(70)
-        body = QFrame()
-        body.setObjectName("SuggestionsBody")
-        self.suggestions.setWidget(body)
-        sl = QVBoxLayout(body)
+        sl = QVBoxLayout(self.suggestions)
         sl.setContentsMargins(10, 8, 10, 8)
         sl.setSpacing(6)
         self.reply_to = _label("", "ReplyTo")
@@ -279,6 +274,7 @@ class OverlayWindow(QWidget):
         sl.addLayout(self.options_layout)
         sl.addWidget(self.suggest_message)
         sl.addWidget(self.stale)
+        sl.addStretch(1)  # spare height goes below the replies, not between them
         self.suggestions.hide()
         self.panes = QSplitter(Qt.Orientation.Vertical)
         self.panes.setChildrenCollapsible(False)
@@ -286,6 +282,8 @@ class OverlayWindow(QWidget):
         self.panes.addWidget(self.suggestions)
         self.panes.setStretchFactor(0, 3)
         self.panes.setStretchFactor(1, 2)
+        self._pane_dragged = False  # once the user drags the divider, stop sizing it for them
+        self.panes.splitterMoved.connect(self._on_divider_moved)
         root.addWidget(self.panes, 1)
 
         footer = QWidget()
@@ -420,6 +418,7 @@ class OverlayWindow(QWidget):
                 w.deleteLater()
         if not vm.visible:
             self.suggestions.hide()
+            self._pane_dragged = False
             return
         self.reply_to.setText(f"Replying to: “{vm.reply_to}”" if vm.reply_to else "")
         self.reply_to.setVisible(bool(vm.reply_to))
@@ -431,8 +430,41 @@ class OverlayWindow(QWidget):
         self.stale.setVisible(vm.stale and not vm.loading)
         if self.suggestions.isHidden():
             self.suggestions.show()
-            total = self.panes.height()  # first appearance: 60 / 40 until the user drags it
-            self.panes.setSizes([total * 3 // 5, total - total * 3 // 5])
+        QTimer.singleShot(0, self._fit_suggestions)  # after the layout has measured the text
+
+    def _reply_gap(self) -> int:
+        """Pixels between the 'Replying to' line and the first reply (for tests)."""
+        first = self.options_layout.itemAt(0)
+        widget = first.widget() if first is not None else None
+        if widget is None:
+            return 0
+        return widget.y() - (self.reply_to.y() + self.reply_to.height())
+
+    def _on_divider_moved(self, _pos: int, _index: int) -> None:
+        self._pane_dragged = True
+
+    def _fit_suggestions(self) -> None:
+        """Size the suggestions panel to exactly what its replies need, so nothing scrolls
+        and nothing is cut off. The transcript gets the rest, but never less than its
+        minimum height. Not done once the user has dragged the divider themselves."""
+        if self._pane_dragged or self.suggestions.isHidden():
+            return
+        layout = self.suggestions.layout()
+        if layout is None:
+            return
+        # Wrapped text is as tall as the width allows, so use the width the panel really
+        # has: the splitter's, not a not-yet-laid-out child's.
+        width = self.panes.width()
+        need = layout.totalHeightForWidth(width) if layout.hasHeightForWidth() else 0
+        need = need or layout.sizeHint().height()
+        total = self.panes.height() - self.panes.handleWidth()
+        room = total - self.transcript.minimumHeight()
+        want = max(self.suggestions.minimumHeight(), min(need, room))
+        self.panes.setSizes([total - want, want])
+
+    def resizeEvent(self, a0: QResizeEvent | None) -> None:
+        super().resizeEvent(a0)
+        QTimer.singleShot(0, self._fit_suggestions)  # the text wraps differently now
 
     def set_status(self, vm: StatusVM) -> None:
         self.status.setText(vm.text)
