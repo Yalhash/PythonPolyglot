@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from polyglot.core.models import Utterance, UtteranceStatus
+from polyglot.core.models import Speaker, Utterance, UtteranceStatus
 
 
 @dataclass(frozen=True)
@@ -50,9 +50,15 @@ class Session:
             self.latest_final_id = max(finals) if finals else None
 
     def latest_answerable(self) -> Utterance | None:
-        """The most recent final utterance that has text (failed ones are skipped)."""
+        """The most recent final utterance by the other person that has text (failed ones
+        are skipped). The user's own turns are never something to reply to."""
         for u in reversed(self.ordered()):
-            if u.is_final and u.text and u.status is not UtteranceStatus.FAILED:
+            if (
+                u.speaker is Speaker.OTHER
+                and u.is_final
+                and u.text
+                and u.status is not UtteranceStatus.FAILED
+            ):
                 return u
         return None
 
@@ -60,7 +66,8 @@ class Session:
         return [self.utterances[k] for k in sorted(self.utterances)]
 
     def history_before(self, utterance_id: int, limit: int) -> tuple[Utterance, ...]:
-        """Final utterances with text, spoken before ``utterance_id``, oldest first."""
+        """Final utterances with text, spoken before ``utterance_id``, oldest first. Both
+        speakers: what the user said is context for what to say next."""
         earlier = [
             u
             for u in self.ordered()

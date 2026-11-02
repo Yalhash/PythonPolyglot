@@ -17,7 +17,7 @@ pytest.importorskip("PyQt6")
 pytest.importorskip("pytestqt")
 
 from PyQt6.QtCore import QEvent, QThread, QTimer
-from PyQt6.QtWidgets import QApplication, QDialog, QWidget
+from PyQt6.QtWidgets import QApplication, QDialog, QLabel, QWidget
 
 from polyglot.adapters.fakes import NoopShield
 from polyglot.adapters.secrets import MemorySecretStore
@@ -319,6 +319,28 @@ def test_settings_dialog_builds_config_and_stores_keys(qtbot: Any) -> None:
     assert secrets.get(Secrets.OPENAI) == "sk-test" and dlg.keys_changed
 
 
+def test_settings_dialog_edits_and_saves_the_profile(qtbot: Any) -> None:
+    from polyglot.ui.qt.settings_dialog import SettingsDialog
+
+    cfg = AppConfig()
+    cfg.profile.name = "Sam"
+    cfg.profile.hobbies = ["chess"]
+    dlg = SettingsDialog(cfg, Secrets(MemorySecretStore(), environ={}), list)
+    qtbot.addWidget(dlg)
+    assert dlg.profile_name.text() == "Sam"  # what was saved is shown again
+    assert dlg.profile_lists["hobbies"].toPlainText() == "chess"
+    dlg.profile_role.setText("  Backend developer ")
+    dlg.profile_summary.setPlainText("I build APIs.")
+    dlg.profile_lists["hobbies"].setPlainText("chess\n\n cycling; trail running \n")
+    dlg.profile_lists["languages"].setPlainText("English (native)\nSpanish (beginner)")
+    dlg._save()
+    assert dlg.result_config is not None
+    p = dlg.result_config.profile
+    assert p.name == "Sam" and p.role == "Backend developer" and p.summary == "I build APIs."
+    assert p.hobbies == ["chess", "cycling; trail running"]  # one item per line
+    assert p.languages == ["English (native)", "Spanish (beginner)"]
+
+
 class FakeModelCatalog:
     def __init__(self, live: list[str] | None = None, error: str | None = None) -> None:
         from types import SimpleNamespace
@@ -358,8 +380,8 @@ def test_model_dropdowns_offer_the_list_and_accept_a_typed_model(qtbot: Any) -> 
     )
     qtbot.addWidget(dlg)
     assert _items(dlg.translate_model) == ["gpt-6-luna", "gpt-4o-mini", "gpt-4.1-mini"]
-    assert dlg.translate_model.currentText() == "gpt-4o-mini"  # the default is kept
-    assert dlg.suggest_model.currentText() == "gpt-4.1-mini"
+    assert dlg.translate_model.currentText() == "gpt-6-luna"  # the default is kept
+    assert dlg.suggest_model.currentText() == "gpt-6-luna"
     assert "API key" in dlg.models_status.text() and catalog.fetched == []  # no key: no call
     dlg.suggest_model.setCurrentText("gpt-9-preview")  # any model ID can be typed
     dlg.translate_model.setCurrentIndex(0)
@@ -377,13 +399,14 @@ def test_model_dropdowns_load_the_accounts_models_in_the_background(qtbot: Any) 
     secrets = Secrets(MemorySecretStore(), environ={})
     secrets.set(Secrets.OPENAI, "sk-test")
     catalog = FakeModelCatalog(live=["gpt-6-luna", "gpt-6.1-sol"])
-    dlg = SettingsDialog(AppConfig(), secrets, list, models=catalog)
+    cfg = AppConfig.model_validate({"translation": {"model": "gpt-4o"}})
+    dlg = SettingsDialog(cfg, secrets, list, models=catalog)
     qtbot.addWidget(dlg)
     qtbot.waitUntil(lambda: "2 models" in dlg.models_status.text(), timeout=3000)
     assert catalog.fetched == ["sk-test"]
     # The current model is not in the account's list: kept, and marked as such.
-    assert _items(dlg.translate_model) == ["gpt-6-luna", "gpt-6.1-sol", "gpt-4o-mini"]
-    assert dlg.translate_model.currentText() == "gpt-4o-mini"
+    assert _items(dlg.translate_model) == ["gpt-6-luna", "gpt-6.1-sol", "gpt-4o"]
+    assert dlg.translate_model.currentText() == "gpt-4o"
     tip = dlg.translate_model.itemData(2, Qt.ItemDataRole.ToolTipRole)
     assert "Not in your account" in tip
     assert "gpt-6.1-sol" in _items(dlg.suggest_model)
@@ -450,3 +473,242 @@ def test_app_smoke_demo_mode(qtbot: Any, tmp_path: Path, caplog: pytest.LogCaptu
         QApplication.processEvents()
     unhandled = [r.getMessage() for r in caplog.records if r.levelno >= logging.CRITICAL]
     assert unhandled == []
+
+
+def test_the_users_own_lines_are_labelled_and_styled(window: Any) -> None:
+    window.upsert_row(RowVM(1, "hola"))
+    window.upsert_row(RowVM(2, "buenos días", mine=True))
+    theirs, mine = window._rows[1], window._rows[2]
+    assert theirs.who.isHidden() and not mine.who.isHidden()
+    assert mine.who.text() == "You" and mine.property("mine") is True
+    assert theirs.property("mine") is False
+
+
+def test_settings_dialog_saves_the_microphone_choice(qtbot: Any) -> None:
+    from polyglot.ui.qt.settings_dialog import SettingsDialog
+
+    devices = [{"id": 3, "name": "Headset Mic"}, {"id": 5, "name": "Webcam Mic"}]
+    dlg = SettingsDialog(AppConfig(), Secrets(MemorySecretStore(), environ={}), lambda: devices)
+    qtbot.addWidget(dlg)
+    assert not dlg.user_mic.isChecked()
+    warning = dlg.findChild(QLabel, "HintWarning")
+    assert warning is not None and "headphones" in warning.text().lower()
+    dlg.user_mic.setChecked(True)
+    dlg.user_device.setCurrentIndex(dlg.user_device.findData("5"))
+    dlg._save()
+    assert dlg.result_config is not None
+    assert dlg.result_config.audio.user_mic and dlg.result_config.audio.user_device == "5"
+
+
+class FakeMicTester:
+    def __init__(self, peak: float = 0.4) -> None:
+        import numpy as np
+
+        from polyglot.core.models import AudioClip
+
+        samples = np.zeros(1600, dtype=np.float32)
+        samples[0] = peak
+        self.clip = AudioClip(samples, 16_000)
+        self.recorded: list[tuple[Any, float]] = []
+        self.played: list[Any] = []
+
+    def record(self, device: Any, seconds: float) -> Any:
+        self.recorded.append((device, seconds))
+        return self.clip
+
+    def play(self, clip: Any) -> None:
+        self.played.append(clip)
+
+
+def test_microphone_test_button_records_the_chosen_device_and_plays_it_back(qtbot: Any) -> None:
+    from polyglot.ui.qt.settings_dialog import SettingsDialog
+
+    tester = FakeMicTester()
+    devices = [{"id": 3, "name": "Headset Mic"}, {"id": 5, "name": "Webcam Mic"}]
+    dlg = SettingsDialog(
+        AppConfig(),
+        Secrets(MemorySecretStore(), environ={}),
+        lambda: devices,
+        mic_tester=tester,
+    )
+    qtbot.addWidget(dlg)
+    assert dlg.mic_test_button.isEnabled()
+    dlg.user_device.setCurrentIndex(dlg.user_device.findData("5"))  # not saved, still tested
+    dlg.mic_test_button.click()
+    qtbot.waitUntil(lambda: bool(tester.played), timeout=5000)
+    qtbot.waitUntil(lambda: dlg.mic_test_status.text() == "Sounds good.", timeout=5000)
+    assert tester.recorded == [(5, 5.0)] and tester.played == [tester.clip]
+    assert dlg.mic_test_button.isEnabled()  # ready for another go
+
+
+def test_microphone_test_reports_silence_and_refuses_while_listening(qtbot: Any) -> None:
+    from polyglot.ui.mic_test import LISTENING_MESSAGE
+    from polyglot.ui.qt.settings_dialog import SettingsDialog
+
+    secrets = Secrets(MemorySecretStore(), environ={})
+    quiet = FakeMicTester(peak=0.0)
+    dlg = SettingsDialog(AppConfig(), secrets, list, mic_tester=quiet)
+    qtbot.addWidget(dlg)
+    dlg.mic_test_button.click()
+    qtbot.waitUntil(lambda: "No sound" in dlg.mic_test_status.text(), timeout=5000)
+    assert quiet.played == [] and dlg.mic_test_status.property("level") == "warn"
+
+    busy = FakeMicTester()
+    dlg2 = SettingsDialog(AppConfig(), secrets, list, mic_tester=busy, is_listening=lambda: True)
+    qtbot.addWidget(dlg2)
+    dlg2.mic_test_button.click()
+    assert dlg2.mic_test_status.text() == LISTENING_MESSAGE and busy.recorded == []
+
+
+def test_microphone_test_button_is_disabled_without_a_tester(qtbot: Any) -> None:
+    from polyglot.ui.qt.settings_dialog import SettingsDialog
+
+    dlg = SettingsDialog(AppConfig(), Secrets(MemorySecretStore(), environ={}), list)
+    qtbot.addWidget(dlg)
+    assert not dlg.mic_test_button.isEnabled()
+
+
+def test_debug_settings_live_in_the_audio_tab_under_a_debug_title(qtbot: Any) -> None:
+    from PyQt6.QtWidgets import QTabWidget
+
+    from polyglot.ui.qt.settings_dialog import SettingsDialog
+
+    dlg = SettingsDialog(AppConfig(), Secrets(MemorySecretStore(), environ={}), list)
+    qtbot.addWidget(dlg)
+    audio = dlg.findChild(QTabWidget).widget(0)  # type: ignore[union-attr]
+    assert audio.isAncestorOf(dlg.file) and audio.isAncestorOf(dlg.dump_audio)
+    assert dlg.dump_audio.text() == "Save each sentence's audio"  # no "for debugging"
+    titles = [lbl for lbl in audio.findChildren(QLabel) if lbl.objectName() == "SectionTitle"]
+    assert [t.text() for t in titles] == ["Debug"]
+    dlg.dump_audio.setChecked(True)
+    dlg._save()
+    assert dlg.result_config is not None and dlg.result_config.privacy.dump_audio
+
+
+# ------------------------------------------------------------------ follow the latest
+def _rows(window: Any, n: int) -> None:
+    from polyglot.ui.presenter import RowVM
+
+    for i in range(1, n + 1):
+        window.upsert_row(RowVM(id=i, original=f"sentence {i} " * 12, translation="x " * 40))
+
+
+def test_transcript_follows_the_latest_sentence_by_default(qtbot: Any) -> None:
+    from polyglot.config import UiConfig
+    from polyglot.ui.qt.overlay import OverlayWindow
+
+    window = OverlayWindow(UiConfig(height=320))
+    qtbot.addWidget(window)
+    window.show()
+    assert window.locked and window.lock_button.text() == "🔒"
+    _rows(window, 12)
+    bar = window.transcript.verticalScrollBar()
+    qtbot.waitUntil(lambda: bar.maximum() > 0 and abs(_newest_gap(window) - 28) <= 2, timeout=3000)
+
+
+def _newest_gap(window: Any) -> int:
+    """Pixels between the newest bubble's bottom and the bottom of the visible area."""
+    newest = window._rows[window._order[-1]]
+    bar = window.transcript.verticalScrollBar()
+    return int(bar.value() + window.transcript.viewport().height() - (newest.y() + newest.height()))
+
+
+def test_newest_bubble_ends_just_above_the_bottom_edge(qtbot: Any) -> None:
+    from polyglot.config import UiConfig
+    from polyglot.ui.qt.overlay import _BOTTOM_GAP, OverlayWindow
+
+    window = OverlayWindow(UiConfig(height=360))
+    qtbot.addWidget(window)
+    window.show()
+    _rows(window, 30)  # far more than fits
+    qtbot.waitUntil(lambda: abs(_newest_gap(window) - _BOTTOM_GAP) <= 2, timeout=3000)
+    _rows(window, 31)
+    qtbot.waitUntil(lambda: abs(_newest_gap(window) - _BOTTOM_GAP) <= 2, timeout=3000)
+
+
+def test_scrolling_unlocks_and_the_button_relocks(qtbot: Any) -> None:
+    from PyQt6.QtWidgets import QAbstractSlider
+
+    from polyglot.config import UiConfig
+    from polyglot.ui.qt.overlay import OverlayWindow
+
+    window = OverlayWindow(UiConfig(height=320))
+    qtbot.addWidget(window)
+    window.show()
+    _rows(window, 12)
+    bar = window.transcript.verticalScrollBar()
+    qtbot.waitUntil(lambda: bar.maximum() > 0 and abs(_newest_gap(window) - 28) <= 2, timeout=3000)
+
+    bar.triggerAction(QAbstractSlider.SliderAction.SliderPageStepSub)  # as if the user scrolled
+    assert not window.locked and window.lock_button.text() == "🔓"
+    position = bar.value()
+    _rows(window, 14)  # new sentences arrive: the view must not move
+    qtbot.wait(100)
+    assert bar.value() == position
+
+    window.lock_button.click()
+    assert window.locked and window.lock_button.text() == "🔒"
+    qtbot.waitUntil(lambda: abs(_newest_gap(window) - 28) <= 2, timeout=3000)
+
+
+def test_toggle_lock_is_the_hotkey_entry_point(qtbot: Any) -> None:
+    from polyglot.config import UiConfig
+    from polyglot.ui.qt.overlay import OverlayWindow
+
+    window = OverlayWindow(UiConfig())
+    qtbot.addWidget(window)
+    window.toggle_lock()
+    assert not window.locked
+    window.toggle_lock()
+    assert window.locked
+
+
+def test_suggestions_have_their_own_pane_below_the_transcript(qtbot: Any) -> None:
+    from polyglot.config import UiConfig
+    from polyglot.ui.presenter import OptionVM, SuggestionVM
+    from polyglot.ui.qt.overlay import OverlayWindow
+
+    window = OverlayWindow(UiConfig(height=520))
+    qtbot.addWidget(window)
+    window.show()
+    _rows(window, 6)
+    long = "A long suggested reply that wraps over several lines. " * 4
+    window.show_suggestions(
+        SuggestionVM(
+            visible=True,
+            reply_to="hola",
+            options=(OptionVM(say=long, means=long), OptionVM(say=long, means=long)),
+        )
+    )
+    qtbot.wait(50)
+    top, bottom = window.transcript.geometry(), window.suggestions.geometry()
+    assert top.bottom() < bottom.top()  # side by side vertically: no overlap
+    assert window.transcript.height() >= 90 and window.suggestions.height() >= 70
+
+
+def test_suggestions_panel_is_sized_to_its_replies(qtbot: Any) -> None:
+    from polyglot.config import UiConfig
+    from polyglot.ui.presenter import OptionVM, SuggestionVM
+    from polyglot.ui.qt.overlay import OverlayWindow
+
+    window = OverlayWindow(UiConfig(height=700))
+    qtbot.addWidget(window)
+    window.show()
+    window.show_suggestions(
+        SuggestionVM(
+            reply_to="Quelles sont vos loisirs ?",
+            options=(
+                OptionVM(say="Je fais du Muay Thai et j'aime lire.", means="I do Muay Thai."),
+                OptionVM(say="J'aime relier des livres.", means="I enjoy bookbinding."),
+            ),
+        )
+    )
+    # The panel is as tall as its replies need (no scrolling, nothing cut off).
+    layout = window.suggestions.layout()
+    qtbot.waitUntil(
+        lambda: window.suggestions.height() >= layout.totalHeightForWidth(window.panes.width()),
+        timeout=3000,
+    )
+    # No empty band between the "Replying to" line and the first reply.
+    gap = window._reply_gap()
+    assert gap <= 12

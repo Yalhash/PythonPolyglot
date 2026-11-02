@@ -26,12 +26,13 @@ import time
 from collections import deque
 from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 import numpy as np
 
 from polyglot.core import languages
+from polyglot.core.context import ContextBuilder
 from polyglot.core.errors import PolyglotError, ProviderError
 from polyglot.core.events import (
     ConversationCleared,
@@ -52,9 +53,9 @@ from polyglot.core.models import (
     ErrorKind,
     IdSource,
     ReplyOption,
+    Speaker,
     SpeechSegment,
     Suggestion,
-    SuggestionContext,
     Transcript,
     Utterance,
     UtteranceStatus,
@@ -68,6 +69,7 @@ from polyglot.core.ports import (
     Translator,
     VoiceActivityModel,
 )
+from polyglot.core.profile import UserProfile
 from polyglot.core.ringbuffer import RingBuffer
 from polyglot.core.segmenter import (
     Discarded,
@@ -89,8 +91,10 @@ class PipelineConfig:
     translate_timeout_s: float = 3.0
     suggest_timeout_s: float = 6.0
     suggestion_history: int = 6
+    suggestion_history_chars: int = 3000
     suggestion_options: int = 2
     conversation_type: ConversationType = ConversationType.MEETING
+    profile: UserProfile = field(default_factory=UserProfile)
     ring_seconds: float = 30.0
     finals_queue_size: int = 8
     gap_fill: bool = True
@@ -163,6 +167,7 @@ class AsrQueue:
 class _Started:
     uid: int
     t_start: float
+    speaker: Speaker = Speaker.OTHER
 
 
 @dataclass(frozen=True)
@@ -189,6 +194,7 @@ class _TranscriptDone:
     t_end: float
     transcript: Transcript
     asr_ms: float
+    speaker: Speaker = Speaker.OTHER
 
 
 @dataclass(frozen=True)
@@ -197,6 +203,7 @@ class _TranscriptFailed:
     is_final: bool
     t_end: float
     error: PolyglotError
+    speaker: Speaker = Speaker.OTHER
 
 
 @dataclass(frozen=True)
@@ -224,12 +231,13 @@ class _AsrState:
 
 @dataclass(frozen=True)
 class _SourceEnded:
-    pass
+    speaker: Speaker = Speaker.OTHER
 
 
 @dataclass(frozen=True)
 class _SourceError:
     error: Exception
+    speaker: Speaker = Speaker.OTHER
 
 
 @dataclass(frozen=True)
@@ -258,7 +266,9 @@ class FrontEnd:
         cfg: PipelineConfig,
         segment_tap: Callable[[SpeechSegment], None] | None = None,
         wall_clock: Callable[[], float] = time.monotonic,
+        speaker: Speaker = Speaker.OTHER,
     ) -> None:
+        self._speaker = speaker  # stamped on everything this stream produces
         self._ring, self._resampler, self._vad = ring, resampler, vad
         self._seg, self._q, self._post, self._cfg = segmenter, asr_queue, post, cfg
         self._tap = segment_tap
@@ -273,7 +283,8 @@ class FrontEnd:
         self.finished = threading.Event()
 
     def start(self) -> None:
-        self._thread = threading.Thread(target=self._run, name="polyglot-frontend", daemon=True)
+        name = "polyglot-frontend" + ("" if self._speaker is Speaker.OTHER else "-user")
+        self._thread = threading.Thread(target=self._run, name=name, daemon=True)
         self._thread.start()
 
     def signal_eof(self) -> None:
@@ -305,10 +316,10 @@ class FrontEnd:
                 self._feed(pad)
             self._route(self._seg.flush())
             if self._eof.is_set():
-                self._post(_SourceEnded())
+                self._post(_SourceEnded(self._speaker))
         except Exception as exc:
             log.exception("front end crashed")
-            self._post(_SourceError(exc))
+            self._post(_SourceError(exc, self._speaker))
         finally:
             self.finished.set()
 
@@ -349,11 +360,11 @@ class FrontEnd:
     def _route(self, outputs: list[Any]) -> None:
         for out in outputs:
             if isinstance(out, SpeechStarted):
-                self._post(_Started(out.utterance_id, out.t_start))
+                self._post(_Started(out.utterance_id, out.t_start, self._speaker))
             elif isinstance(out, Discarded):
                 self._post(_Discarded(out.utterance_id))
             elif isinstance(out, SegmentReady):
-                seg = out.segment
+                seg = replace(out.segment, speaker=self._speaker)
                 if seg.is_final:
                     if self._tap is not None:
                         try:
@@ -423,18 +434,29 @@ class AsrWorker:
         try:
             tr = self._tr.transcribe(seg.audio, self._language())
         except PolyglotError as exc:
-            self._post(_TranscriptFailed(seg.utterance_id, seg.is_final, seg.t_end, exc))
+            self._post(
+                _TranscriptFailed(seg.utterance_id, seg.is_final, seg.t_end, exc, seg.speaker)
+            )
             return
         except Exception as exc:
             log.exception("transcriber raised an unexpected error")
             err = PolyglotError(f"unexpected transcriber error: {exc}")
             err.kind = ErrorKind.TRANSCRIPTION
-            self._post(_TranscriptFailed(seg.utterance_id, seg.is_final, seg.t_end, err))
+            self._post(
+                _TranscriptFailed(seg.utterance_id, seg.is_final, seg.t_end, err, seg.speaker)
+            )
             return
         ms = (time.monotonic() - t0) * 1000
         self._post(
             _TranscriptDone(
-                seg.utterance_id, seg.is_final, seg.version, seg.t_start, seg.t_end, tr, ms
+                seg.utterance_id,
+                seg.is_final,
+                seg.version,
+                seg.t_start,
+                seg.t_end,
+                tr,
+                ms,
+                seg.speaker,
             )
         )
 
@@ -459,10 +481,18 @@ class Coordinator:
         self._pool = ThreadPoolExecutor(cfg.network_workers, thread_name_prefix="polyglot-net")
         self._thread: threading.Thread | None = None
         self._suggest_gen = 0
+        self._context = ContextBuilder(
+            max_utterances=cfg.suggestion_history,
+            max_chars=cfg.suggestion_history_chars,
+            conversation_type=cfg.conversation_type,
+            max_options=cfg.suggestion_options,
+            profile=cfg.profile,
+        )
         self._ignore_upto = 0  # utterance IDs <= this were cleared by the user
         self._pending_network = 0
         self.state = PipelineState.STOPPED
-        self.source_ended = threading.Event()
+        self.source_ended = threading.Event()  # the other person's audio source
+        self.user_source_ended = threading.Event()  # the user's microphone
         self.on_fatal: Callable[[], None] | None = None  # set by Pipeline
         self._count_lock = threading.Lock()
         self._posted = 0  # messages accepted into the inbox
@@ -538,7 +568,7 @@ class Coordinator:
     def _handle(self, msg: object) -> None:
         if isinstance(msg, _Started):
             if msg.uid > self._ignore_upto:
-                self._publish(Utterance(id=msg.uid, t_start=msg.t_start))
+                self._publish(Utterance(id=msg.uid, t_start=msg.t_start, speaker=msg.speaker))
         elif isinstance(msg, _Discarded):
             self.session.remove(msg.uid)
             self._bus.publish(UtteranceDiscarded(msg.uid))
@@ -562,15 +592,26 @@ class Coordinator:
         elif isinstance(msg, _AsrState):
             self._on_asr_state(msg)
         elif isinstance(msg, _SourceEnded):
-            self.source_ended.set()
+            (self.user_source_ended if msg.speaker is Speaker.USER else self.source_ended).set()
         elif isinstance(msg, _SourceError):
-            self._set_state(PipelineState.ERROR, f"audio source failed: {msg.error}")
-            self._bus.publish(StageError("audio", ErrorKind.AUDIO, str(msg.error)))
-            self.source_ended.set()
+            self._on_source_error(msg)
         elif isinstance(msg, _Command):
             self._on_command(msg)
         else:  # pragma: no cover
             log.warning("unknown coordinator message %r", msg)
+
+    def _on_source_error(self, msg: _SourceError) -> None:
+        if msg.speaker is Speaker.USER:
+            # The other person's audio is the point of the app: losing the microphone is
+            # reported (as a warning), and listening carries on without it.
+            self._bus.publish(
+                StageError("audio", ErrorKind.AUDIO, f"microphone: {msg.error}", retryable=True)
+            )
+            self.user_source_ended.set()
+            return
+        self._set_state(PipelineState.ERROR, f"audio source failed: {msg.error}")
+        self._bus.publish(StageError("audio", ErrorKind.AUDIO, str(msg.error)))
+        self.source_ended.set()
 
     # ------------------------------------------------------------------ ASR results
     def _on_asr_state(self, msg: _AsrState) -> None:
@@ -611,13 +652,17 @@ class Coordinator:
             self._maybe_recover()
             return
         lang = self.session.locked_language or tr.language
-        base = current or Utterance(id=msg.uid, t_start=msg.t_start)
+        base = current or Utterance(id=msg.uid, t_start=msg.t_start, speaker=msg.speaker)
         u = base.evolve(
             status=UtteranceStatus.FINAL, text=text, source_lang=lang, t_end=msg.t_end, error=None
         )
         self._publish(u)
         log.info("utt=%d final asr_ms=%.0f audio_s=%.2f", u.id, msg.asr_ms, msg.t_end - msg.t_start)
-        if self.session.observe_language(tr.language, tr.language_probability):
+        # Only the other person's speech decides their language; the user's own turns
+        # (in whatever language they happen to speak) must not move the lock.
+        if u.speaker is Speaker.OTHER and self.session.observe_language(
+            tr.language, tr.language_probability
+        ):
             self._bus.publish(LanguageChanged(self.session.locked_language, locked=True))
         self._maybe_recover()
         self._dispatch_translation(u)
@@ -626,7 +671,9 @@ class Coordinator:
         if not msg.is_final or msg.uid <= self._ignore_upto:
             log.warning("partial transcription failed for utt=%d: %s", msg.uid, msg.error)
             return
-        current = self.session.get(msg.uid) or Utterance(id=msg.uid, t_start=msg.t_end)
+        current = self.session.get(msg.uid) or Utterance(
+            id=msg.uid, t_start=msg.t_end, speaker=msg.speaker
+        )
         self._publish(
             current.evolve(status=UtteranceStatus.FAILED, error=msg.error.kind, t_end=msg.t_end)
         )
@@ -654,6 +701,8 @@ class Coordinator:
     # ------------------------------------------------------------------ translation
     def _dispatch_translation(self, u: Utterance) -> None:
         target = self.session.target_language
+        if u.speaker is Speaker.USER:
+            return  # the user knows what they said; no point paying to translate it
         if self._translator is None or languages.same_language(u.source_lang, target):
             return
         translator, timeout = self._translator, self._cfg.translate_timeout_s
@@ -703,14 +752,7 @@ class Coordinator:
             return
         self._suggest_gen += 1
         gen = self._suggest_gen
-        ctx = SuggestionContext(
-            target=target,
-            history=self.session.history_before(target.id, self._cfg.suggestion_history),
-            source_language=languages.name(target.source_lang),
-            user_language=languages.name(self.session.target_language),
-            conversation_type=self._cfg.conversation_type,
-            max_options=self._cfg.suggestion_options,
-        )
+        ctx = self._context.build(self.session, target)
         suggester, timeout = self._suggester, self._cfg.suggest_timeout_s
         self._pending_network += 1
         self._bus.publish(SuggestionStarted(target.id))
@@ -745,6 +787,8 @@ class Coordinator:
             self._bus.publish(LanguageChanged(cmd.arg, locked=cmd.arg is not None))
         elif cmd.name == "set_target":
             self.session.target_language = cmd.arg
+        elif cmd.name == "set_profile":
+            self._context = self._context.with_profile(cmd.arg)
         elif cmd.name == "abandon_open":
             self._abandon_open()
         elif cmd.name == "retranslate":
@@ -819,8 +863,10 @@ class _Sink:
         ring: RingBuffer,
         frontend: Callable[[], FrontEnd | None],
         post: Callable[[object], None],
+        speaker: Speaker = Speaker.OTHER,
     ) -> None:
         self._ring, self._frontend, self._post = ring, frontend, post
+        self._speaker = speaker
         self._errored = False
 
     def on_audio(self, block: RawAudio) -> None:
@@ -836,7 +882,7 @@ class _Sink:
     def on_error(self, error: Exception) -> None:
         if not self._errored:
             self._errored = True
-            self._post(_SourceError(error))
+            self._post(_SourceError(error, self._speaker))
             fe = self._frontend()
             if fe is not None:
                 fe.signal_eof()
@@ -864,9 +910,14 @@ class Pipeline:
         segment_tap: Callable[[SpeechSegment], None] | None = None,
         session: Session | None = None,
         ids: IdSource | None = None,
+        user_source: AudioSource | None = None,
+        user_vad: VoiceActivityModel | None = None,
     ) -> None:
+        if (user_source is None) != (user_vad is None):
+            raise ValueError("user_source and user_vad go together: a VAD model keeps state")
         self.cfg = config or PipelineConfig()
         self._source = source
+        self._user_source, self._user_vad = user_source, user_vad
         self._resampler_factory = resampler_factory
         self._vad = vad
         self._transcriber = transcriber
@@ -881,6 +932,7 @@ class Pipeline:
         self._lock = threading.Lock()
         self._running = False
         self._frontend: FrontEnd | None = None
+        self._user_frontend: FrontEnd | None = None
         self._asr: AsrWorker | None = None
         self._asr_queue: AsrQueue | None = None
         self._coord = Coordinator(
@@ -912,6 +964,16 @@ class Pipeline:
         """True once a finite source (file) has been fully consumed and flushed."""
         return self._coord.source_ended.is_set()
 
+    @property
+    def user_source_ended(self) -> bool:
+        """The same for the user's microphone (also set if the microphone failed). A
+        live microphone never ends, so only a finite source is worth waiting for."""
+        return self._coord.user_source_ended.is_set()
+
+    @property
+    def has_user_source(self) -> bool:
+        return self._user_source is not None
+
     def start(self) -> None:
         with self._lock:
             if self._running:
@@ -930,6 +992,7 @@ class Pipeline:
                     )
                     return
             coord.source_ended.clear()
+            coord.user_source_ended.clear()
             asr_q = AsrQueue(cfg.finals_queue_size)
             rate = self._source.sample_rate
             ring = RingBuffer(max(1, int(cfg.ring_seconds * rate)))
@@ -948,6 +1011,25 @@ class Pipeline:
             asr = AsrWorker(self._transcriber, asr_q, coord.post, lambda: session.locked_language)
             self._asr_queue, self._frontend, self._asr = asr_q, frontend, asr
 
+            user_ring: RingBuffer | None = None
+            if self._user_source is not None and self._user_vad is not None:
+                # The user's microphone: its own ring, resampler, VAD state and segmenter,
+                # but the same ID sequence, ASR queue/worker and coordinator.
+                user_rate = self._user_source.sample_rate
+                user_ring = RingBuffer(max(1, int(cfg.ring_seconds * user_rate)))
+                self._user_vad.reset()
+                self._user_frontend = FrontEnd(
+                    user_ring,
+                    self._resampler_factory(user_rate),
+                    self._user_vad,
+                    Segmenter(cfg.segmenter, self.ids),
+                    asr_q,
+                    coord.post,
+                    cfg,
+                    self._tap,
+                    speaker=Speaker.USER,
+                )
+
             coord.post(_Command("status", (PipelineState.LOADING, "loading speech model")))
             asr.start()
             frontend.start()
@@ -955,10 +1037,26 @@ class Pipeline:
                 self._source.start(_Sink(ring, lambda: self._frontend, coord.post))
             except Exception as exc:
                 log.exception("audio source failed to start")
+                self._user_frontend = None
                 self._teardown(flush=False)
                 coord.post(_SourceError(exc))
                 return
             self._running = True
+            if (
+                self._user_source is not None
+                and user_ring is not None
+                and self._user_frontend is not None
+            ):
+                self._user_frontend.start()
+                try:
+                    self._user_source.start(
+                        _Sink(user_ring, lambda: self._user_frontend, coord.post, Speaker.USER)
+                    )
+                except Exception as exc:
+                    # Listening to the other person still works without the microphone.
+                    log.exception("microphone failed to start")
+                    self._stop_user_frontend(flush=False)
+                    coord.post(_SourceError(exc, Speaker.USER))
 
     def stop(self, timeout: float = 10.0) -> None:
         """Stop listening. The utterance in progress is finished and transcribed."""
@@ -970,6 +1068,11 @@ class Pipeline:
                 self._source.stop()
             except Exception:
                 log.exception("audio source failed to stop cleanly")
+            if self._user_source is not None:
+                try:
+                    self._user_source.stop()
+                except Exception:
+                    log.exception("microphone failed to stop cleanly")
             self._teardown(flush=True, timeout=timeout)
             self._coord.post(_Command("abandon_open"))
             self._coord.post(_Command("status", (PipelineState.STOPPED, "")))
@@ -981,23 +1084,34 @@ class Pipeline:
         self.stop()
         self._coord.stop()
 
+    def _stop_user_frontend(self, *, flush: bool) -> None:
+        fe = self._user_frontend
+        if fe is not None:
+            if flush:
+                fe.signal_eof()
+            fe.stop(timeout=2.0)
+
     def _teardown(self, *, flush: bool, timeout: float = 5.0) -> None:
         if self._frontend is not None:
             if flush:
                 self._frontend.signal_eof()
             self._frontend.stop(timeout=2.0)
+        self._stop_user_frontend(flush=flush)  # before the queue closes: it may enqueue
         if self._asr_queue is not None:
             self._asr_queue.close()
         if self._asr is not None:
             self._asr.join(timeout)
 
     def wait_idle(self, timeout: float = 30.0) -> bool:
-        """For file sources and tests: wait until the source ended and all work finished."""
+        """For file sources and tests: wait until the source ended and all work finished.
+        With a user source that must have ended too, so only wait on a finite one."""
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             fe, asr, q, coord = self._frontend, self._asr, self._asr_queue, self._coord
+            ufe = self._user_frontend
             if (
                 fe is not None
+                and (ufe is None or ufe.finished.is_set())
                 and asr is not None
                 and q is not None
                 and fe.finished.is_set()
@@ -1022,6 +1136,11 @@ class Pipeline:
 
     def set_target_language(self, language: str) -> None:
         self._coord.post(_Command("set_target", language))
+
+    def set_profile(self, profile: UserProfile) -> None:
+        """Use a new user profile for the next suggestion. Requests already in flight keep
+        the profile they were built with."""
+        self._coord.post(_Command("set_profile", profile))
 
     def retranslate_pending(self) -> None:
         """Translate final utterances still waiting for one (e.g. after a rebuild

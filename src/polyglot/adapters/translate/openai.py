@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from polyglot.adapters.http import HttpClient, UrllibHttpClient, raise_for_status
+from polyglot.adapters.http import HttpClient, HttpsClient, raise_for_status
 from polyglot.adapters.openai_models import MEMORY, chat_options, rejected_param
 from polyglot.core import languages
 from polyglot.core.errors import BadResponse
@@ -59,12 +59,12 @@ class OpenAITranslator:
         self,
         api_key: str,
         *,
-        model: str = "gpt-4o-mini",
+        model: str = "gpt-6-luna",
         base_url: str = DEFAULT_BASE_URL,
         http: HttpClient | None = None,
     ) -> None:
         self._key, self.model, self._base = api_key, model, base_url
-        self._http = http or UrllibHttpClient()
+        self._http = http or HttpsClient()
 
     def translate(self, text: str, source: str | None, target: str, *, timeout: float) -> str:
         if not text.strip():

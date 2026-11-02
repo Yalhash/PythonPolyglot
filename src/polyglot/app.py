@@ -51,6 +51,7 @@ def run_gui(config_path: Path | None, *, demo: bool = False) -> int:
     from PyQt6.QtWidgets import QApplication, QMenu, QMessageBox, QSystemTrayIcon
 
     from polyglot import platform
+    from polyglot.adapters.audio.sounddevice_source import SoundDeviceMicTester
     from polyglot.adapters.openai_models import OpenAIModelCatalog
     from polyglot.adapters.secrets import KeyringSecretStore, MemorySecretStore
     from polyglot.ui.presenter import Presenter
@@ -115,14 +116,22 @@ def run_gui(config_path: Path | None, *, demo: bool = False) -> int:
     hotkeys = GlobalHotkeys()
     hotkeys.suggest.connect(presenter.on_suggest)
     hotkeys.toggle_window.connect(window.toggle_visible)
-    hotkeys.bind(config.ui.hotkey_suggest, config.ui.hotkey_toggle)
+    hotkeys.toggle_lock.connect(window.toggle_lock)
+    hotkeys.bind(config.ui.hotkey_suggest, config.ui.hotkey_toggle, config.ui.hotkey_lock)
 
     model_catalog = OpenAIModelCatalog()  # caches the account's model list per session
+    mic_tester = SoundDeviceMicTester()
 
     def open_settings() -> None:
         nonlocal shield_filter
         dialog = SettingsDialog(
-            controller.config, secrets, _list_devices, window, models=model_catalog
+            controller.config,
+            secrets,
+            _list_devices,
+            window,
+            models=model_catalog,
+            mic_tester=mic_tester,
+            is_listening=lambda: controller.listening,
         )
         accepted = bool(dialog.exec())
         new, keys_changed = dialog.result_config, dialog.keys_changed
@@ -134,7 +143,7 @@ def run_gui(config_path: Path | None, *, demo: bool = False) -> int:
             refresh_flags()
             presenter.on_user_language(new.translation.target_language)
             window.setWindowOpacity(new.ui.opacity)
-            hotkeys.bind(new.ui.hotkey_suggest, new.ui.hotkey_toggle)
+            hotkeys.bind(new.ui.hotkey_suggest, new.ui.hotkey_toggle, new.ui.hotkey_lock)
             if new.ui.hide_from_capture and shield_filter is None:
                 shield_filter = CaptureShieldFilter(platform.window_shield())
                 shield_filter.status_changed.connect(presenter.on_shield_status)

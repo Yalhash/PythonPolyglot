@@ -120,8 +120,9 @@ class AppController:
     def apply_config(self, new: AppConfig) -> set[str]:
         """Apply and persist a new config. Returns the sections that changed.
 
-        Display-only sections apply live (the UI reads them). Pipeline sections rebuild
-        the pipeline, keeping the conversation; capture restarts if it was running.
+        Display-only sections apply live (the UI reads them), and so does the profile.
+        Pipeline sections rebuild the pipeline, keeping the conversation; capture restarts
+        if it was running.
         """
         old = self.config
         changed = changed_sections(old, new)
@@ -136,7 +137,9 @@ class AppController:
                     StageError("settings", ErrorKind.INTERNAL, f"could not save settings: {exc}")
                 )
         if changed & PIPELINE_SECTIONS:
-            self.rebuild()
+            self.rebuild()  # the new pipeline is built with the current profile
+        elif "profile" in changed and self.built is not None:
+            self.built.pipeline.set_profile(new.profile.to_core())  # next suggestion uses it
         if old.asr.language != new.asr.language and self.built is not None:
             self.built.pipeline.set_language(new.asr.language)  # forced language, or unlock
         return changed

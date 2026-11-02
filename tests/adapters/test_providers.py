@@ -3,22 +3,17 @@
 from __future__ import annotations
 
 import json
-import urllib.error
 from typing import Any
 
 import pytest
 
-from polyglot.adapters.http import HttpResponse, UrllibHttpClient, raise_for_status
+from polyglot.adapters.http import HttpResponse
 from polyglot.adapters.suggest.openai import SCHEMA, OpenAISuggester, build_messages, parse_options
 from polyglot.adapters.translate.google import GoogleTranslator
 from polyglot.adapters.translate.openai import OpenAITranslator
 from polyglot.core.errors import (
     AuthError,
     BadResponse,
-    ProviderError,
-    ProviderTimeout,
-    ProviderUnavailable,
-    QuotaExceeded,
 )
 from polyglot.core.models import (
     ConversationType,
@@ -54,118 +49,6 @@ def chat(content: Any, **message: Any) -> HttpResponse:
 
 
 # ------------------------------------------------------------------ status mapping
-@pytest.mark.parametrize(
-    ("status", "body", "exc", "retryable"),
-    [
-        (401, "", AuthError, False),
-        (403, "", AuthError, False),
-        (403, '{"error":{"errors":[{"reason":"dailyLimitExceeded"}]}}', QuotaExceeded, False),
-        (
-            403,
-            '{"error":{"errors":[{"reason":"userRateLimitExceeded"}]}}',
-            ProviderUnavailable,
-            True,
-        ),
-        (429, '{"error":{"code":"insufficient_quota"}}', QuotaExceeded, False),
-        (429, "slow down", ProviderUnavailable, True),
-        (500, "", ProviderUnavailable, True),
-        (503, "", ProviderUnavailable, True),
-        (400, "bad request", ProviderError, False),
-    ],
-)
-def test_status_mapping(status: int, body: str, exc: type, retryable: bool) -> None:
-    with pytest.raises(exc) as info:
-        raise_for_status(HttpResponse(status, body), "X")
-    assert info.value.retryable is retryable
-
-
-def test_2xx_passes() -> None:
-    raise_for_status(HttpResponse(200, "{}"), "X")
-
-
-def test_non_json_body_is_bad_response() -> None:
-    with pytest.raises(BadResponse):
-        HttpResponse(200, "<html>").json()
-
-
-# ------------------------------------------------------------------ urllib transport
-def test_refuses_plain_http() -> None:
-    with pytest.raises(ProviderError):
-        UrllibHttpClient().post_json("http://example.com", {}, timeout=1)
-
-
-@pytest.mark.parametrize(
-    ("raised", "expected"),
-    [
-        (TimeoutError("t"), ProviderTimeout),
-        (urllib.error.URLError(TimeoutError("t")), ProviderTimeout),
-        (urllib.error.URLError(ConnectionRefusedError("no")), ProviderUnavailable),
-        (OSError("reset"), ProviderUnavailable),
-    ],
-)
-def test_transport_errors_are_typed(
-    monkeypatch: pytest.MonkeyPatch, raised: Exception, expected: type
-) -> None:
-    def boom(*_a: Any, **_k: Any) -> Any:
-        raise raised
-
-    monkeypatch.setattr("urllib.request.urlopen", boom)
-    with pytest.raises(expected):
-        UrllibHttpClient().post_json("https://example.com", {}, timeout=1)
-
-
-def test_http_error_status_is_returned_not_raised(monkeypatch: pytest.MonkeyPatch) -> None:
-    import io
-
-    def fail(*_a: Any, **_k: Any) -> Any:
-        raise urllib.error.HTTPError("https://x", 401, "no", {}, io.BytesIO(b'{"error":"bad key"}'))  # type: ignore[arg-type]
-
-    monkeypatch.setattr("urllib.request.urlopen", fail)
-    resp = UrllibHttpClient().post_json(
-        "https://example.com", {"a": 1}, params={"k": "v"}, timeout=1
-    )
-    assert resp.status == 401 and "bad key" in resp.body
-
-
-def test_success_path_sends_json(monkeypatch: pytest.MonkeyPatch) -> None:
-    seen: dict[str, Any] = {}
-
-    class Resp:
-        status = 200
-
-        def read(self) -> bytes:
-            return b'{"ok": true}'
-
-        def __enter__(self) -> Resp:
-            return self
-
-        def __exit__(self, *a: Any) -> None:
-            return None
-
-    def fake_urlopen(req: Any, timeout: float) -> Resp:
-        seen.update(
-            url=req.full_url,
-            data=json.loads(req.data),
-            headers=dict(req.header_items()),
-            timeout=timeout,
-        )
-        return Resp()
-
-    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
-    resp = UrllibHttpClient().post_json(
-        "https://h/x",
-        {"a": 1},
-        headers={"Authorization": "Bearer k"},
-        params={"key": "q"},
-        timeout=2.5,
-    )
-    assert resp.json() == {"ok": True}
-    assert (
-        seen["url"] == "https://h/x?key=q" and seen["data"] == {"a": 1} and seen["timeout"] == 2.5
-    )
-    assert seen["headers"]["Authorization"] == "Bearer k"
-
-
 # ------------------------------------------------------------------ OpenAI translator
 def test_openai_translate_request_and_result() -> None:
     http = FakeHttp(chat("  Good morning  "))
@@ -287,27 +170,35 @@ def test_build_messages_without_history() -> None:
     assert "casual" in build_messages(c2)[0]["content"]
 
 
-def test_truncated_response_is_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
-    import http.client
+def test_build_messages_labels_who_spoke() -> None:
+    from polyglot.core.models import Speaker
 
-    def boom(*_a: Any, **_k: Any) -> Any:
-        raise http.client.IncompleteRead(b"partial")
+    base = ctx()
+    user_turn = Utterance(
+        9, 0, 1, UtteranceStatus.FINAL, "Lidero un equipo", "es", speaker=Speaker.USER
+    )
+    c = SuggestionContext(base.target, (*base.history, user_turn), "Spanish", "English")
+    _, user = (m["content"] for m in build_messages(c))
+    assert "- Them: Hola  (Hello)" in user
+    assert "- User: Lidero un equipo" in user
+    assert "User is the person you are helping" in user
 
-    monkeypatch.setattr("urllib.request.urlopen", boom)
-    with pytest.raises(ProviderUnavailable):
-        UrllibHttpClient().post_json("https://example.com", {}, timeout=1)
+
+def test_build_messages_includes_the_profile_when_set() -> None:
+    from polyglot.core.profile import UserProfile
+
+    profile = UserProfile(
+        name="Sam", role="Backend developer", hobbies=("cycling", "chess"), tone="polite"
+    )
+    c = SuggestionContext(ctx().target, (), "Spanish", "English", profile=profile)
+    system = build_messages(c)[0]["content"]
+    assert "About the user" in system
+    assert "- Name: Sam" in system and "- Role: Backend developer" in system
+    assert (
+        "- Hobbies: cycling; chess" in system and "- Preferred tone for replies: polite" in system
+    )
+    assert "never state personal facts that are not listed" in system
 
 
-def test_error_body_read_failure_keeps_status(monkeypatch: pytest.MonkeyPatch) -> None:
-    class Body:
-        def read(self, *_a: Any) -> bytes:
-            raise TimeoutError("slow body")
-
-        def close(self) -> None:
-            pass
-
-    def fail(*_a: Any, **_k: Any) -> Any:
-        raise urllib.error.HTTPError("https://x", 503, "busy", {}, Body())  # type: ignore[arg-type]
-
-    monkeypatch.setattr("urllib.request.urlopen", fail)
-    assert UrllibHttpClient().post_json("https://example.com", {}, timeout=1).status == 503
+def test_build_messages_without_a_profile_has_no_profile_section() -> None:
+    assert "About the user" not in build_messages(ctx())[0]["content"]

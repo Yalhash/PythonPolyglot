@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from polyglot.adapters.http import HttpClient, UrllibHttpClient, raise_for_status
+from polyglot.adapters.http import HttpClient, HttpsClient, raise_for_status
 from polyglot.core import languages
 from polyglot.core.errors import BadResponse
 
@@ -12,7 +12,7 @@ URL = "https://translation.googleapis.com/language/translate/v2"
 class GoogleTranslator:
     def __init__(self, api_key: str, *, http: HttpClient | None = None) -> None:
         self._key = api_key
-        self._http = http or UrllibHttpClient()
+        self._http = http or HttpsClient()
 
     def translate(self, text: str, source: str | None, target: str, *, timeout: float) -> str:
         if not text.strip():

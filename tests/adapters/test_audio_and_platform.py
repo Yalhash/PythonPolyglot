@@ -333,3 +333,63 @@ def test_whisper_adapter_uses_auto_compute_type_and_reports_the_choice(
     assert built["compute_type"] == "auto" and built["name"] == "base"
     assert (t.effective_device, t.effective_compute_type) == ("cpu", "int8")
     assert "loaded on cpu as int8" in caplog.text
+
+
+# ------------------------------------------------------------------ microphone test
+class FakeSounddevice:
+    class PortAudioError(Exception):
+        pass
+
+    def __init__(self, *, fail: bool = False) -> None:
+        self.fail = fail
+        self.calls: list[tuple[str, Any]] = []
+
+    def query_devices(self, device: Any, kind: str) -> dict[str, Any]:
+        self.calls.append(("query", (device, kind)))
+        if self.fail:
+            raise ValueError("no such device")
+        return {"default_samplerate": 8000.0}
+
+    def rec(self, frames: int, **kw: Any) -> Any:
+        self.calls.append(("rec", (frames, kw)))
+        return np.full((frames, 1), 0.25, dtype=np.float32)  # sounddevice returns 2-D
+
+    def play(self, samples: Any, rate: int) -> None:
+        self.calls.append(("play", (len(samples), rate)))
+
+    def wait(self) -> None:
+        self.calls.append(("wait", None))
+
+
+def test_microphone_tester_records_mono_at_the_device_rate(monkeypatch: pytest.MonkeyPatch) -> None:
+    from polyglot.adapters.audio import sounddevice_source as mod
+
+    fake = FakeSounddevice()
+    monkeypatch.setattr(mod, "_sd", lambda: fake)
+    clip = mod.SoundDeviceMicTester().record(3, 2.0)
+    assert clip.sample_rate == 8000 and clip.samples.shape == (16000,)  # flattened to mono
+    assert clip.samples.dtype == np.float32 and clip.level() == "ok"
+    frames, kw = next(a for name, a in fake.calls if name == "rec")
+    assert (
+        frames == 16000 and kw["device"] == 3 and kw["channels"] == 1 and kw["samplerate"] == 8000
+    )
+    assert [name for name, _ in fake.calls][-1] == "wait"  # blocks until done
+
+
+def test_microphone_tester_plays_the_clip_and_waits(monkeypatch: pytest.MonkeyPatch) -> None:
+    from polyglot.adapters.audio import sounddevice_source as mod
+    from polyglot.core.models import AudioClip
+
+    fake = FakeSounddevice()
+    monkeypatch.setattr(mod, "_sd", lambda: fake)
+    mod.SoundDeviceMicTester().play(AudioClip(np.zeros(100, dtype=np.float32), 8000))
+    assert fake.calls == [("play", (100, 8000)), ("wait", None)]
+
+
+def test_microphone_tester_errors_are_audio_errors(monkeypatch: pytest.MonkeyPatch) -> None:
+    from polyglot.adapters.audio import sounddevice_source as mod
+    from polyglot.core.errors import AudioSourceError
+
+    monkeypatch.setattr(mod, "_sd", lambda: FakeSounddevice(fail=True))
+    with pytest.raises(AudioSourceError, match="cannot record"):
+        mod.SoundDeviceMicTester().record(9, 1.0)

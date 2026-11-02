@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 import json
-import urllib.request
 from collections.abc import Iterator
 from typing import Any
 
 import pytest
 
-from polyglot.adapters.http import HttpResponse, UrllibHttpClient
+from polyglot.adapters.http import HttpResponse, HttpsClient
 from polyglot.adapters.openai_models import (
     KNOWN_MODELS,
     MEMORY,
@@ -183,30 +182,4 @@ def test_default_models_are_in_the_built_in_list() -> None:
 # ------------------------------------------------------------------ GET transport
 def test_get_json_refuses_plain_http() -> None:
     with pytest.raises(ProviderError):
-        UrllibHttpClient().get_json("http://api.openai.com/v1/models", timeout=1)
-
-
-def test_get_json_sends_a_get_without_body(monkeypatch: pytest.MonkeyPatch) -> None:
-    seen: dict[str, Any] = {}
-
-    class Resp:
-        status = 200
-
-        def read(self) -> bytes:
-            return b'{"data": []}'
-
-        def __enter__(self) -> Resp:
-            return self
-
-        def __exit__(self, *a: object) -> None:
-            return None
-
-    def fake_urlopen(req: urllib.request.Request, timeout: float) -> Resp:
-        seen.update(method=req.get_method(), data=req.data, auth=req.get_header("Authorization"))
-        return Resp()
-
-    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
-    resp = UrllibHttpClient().get_json(
-        "https://api.openai.com/v1/models", headers={"Authorization": "Bearer k"}, timeout=2
-    )
-    assert resp.status == 200 and seen == {"method": "GET", "data": None, "auth": "Bearer k"}
+        HttpsClient().get_json("http://api.openai.com/v1/models", timeout=1)

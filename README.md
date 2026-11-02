@@ -35,8 +35,13 @@ On first real run Whisper downloads its model (`base` is about 150 MB).
 | --- | --- |
 | Suggest replies to the last sentence | `Ctrl+Alt+S` |
 | Show / hide the window | `Ctrl+Alt+H` |
+| Lock / unlock following the latest sentence | `Ctrl+Alt+L` |
 
 Inside the window: `Ctrl+Enter` suggests, `Esc` hides. Click a suggestion to copy it.
+
+The transcript follows the newest sentence (🔒, next to Suggest). Scrolling by hand
+unlocks it (🔓) so the view stays where you are reading; it follows again only when you
+click the lock button or press `Ctrl+Alt+L`, which also jumps to the latest sentence.
 
 ### Audio source
 
@@ -57,14 +62,46 @@ macOS Keychain), never in a file. For development, `POLYGLOT_OPENAI_API_KEY` /
 
 Settings → Translation and Settings → Suggestions each have a model dropdown. It starts
 with a short built-in list and, once an OpenAI key is set, loads the chat models your key
-can actually use (Refresh reloads it). Any model ID can also be typed in. Defaults:
-`gpt-4o-mini` for translation and `gpt-4.1-mini` for suggestions. OpenAI retires both on
-2027-01-14 and names `gpt-6-luna` as the replacement.
+can actually use (Refresh reloads it). Any model ID can also be typed in. The default for
+both is `gpt-6-luna`, the replacement OpenAI names for `gpt-4o-mini` and `gpt-4.1-mini`,
+which it retires on 2027-01-14. A saved setting that still holds one of those two is moved
+to `gpt-6-luna` when the config is loaded.
+
+Translation and suggestions are separate settings, so they can use different models:
+a larger model for suggestions (for example `gpt-6.1-sol`) leaves translation fast.
+Requests reuse one HTTPS connection per worker thread, so only the first one pays for
+the connection setup.
 
 Older models get a `temperature`; reasoning models get the lowest `reasoning_effort`
 that fits the job instead (`none` for translation, `low` for suggestions). If a model
 rejects a parameter or value, the request is retried once without it, and that is
 remembered for the session.
+
+### Your microphone
+
+Settings → Audio → "Also listen to my microphone" adds a second input for your own voice
+(off by default). What you say is transcribed on this computer, shown in the window as a
+"You" line, and used as context, so suggestions know what you already said. It is never
+translated and never replied to. Use headphones: with speakers, the microphone also hears
+the other person and those lines would be tagged as yours. If the microphone cannot be
+opened you get a warning and listening to the other person carries on.
+
+The **Test** button next to the microphone picker records 5 seconds from the selected device
+and plays them back, then tells you if it was too quiet, too loud, or silent. Stop listening
+first: the playback would otherwise be picked up as the other person's audio.
+
+### About you
+
+Settings → About you lets suggestions talk about *you*: your name, role, skills, languages,
+experience, hobbies and interests, how you want replies to sound, and what you want from the
+conversation. Fill it in once; it is saved in `config.toml` (the `[profile]` section) and
+used every time. Suggestions also see what was said earlier in the conversation, up to
+`suggestions.history` utterances or `suggestions.history_chars` characters.
+
+Everything in your profile is sent to the AI provider with each suggestion request, so it only has
+fields for things you would say out loud to the other person. There is deliberately no field
+for health, politics, religion, money or other private details, and the free-text fields are
+yours to keep clean. Profile edits take effect on the next suggestion with no restart.
 
 ## Configuration
 

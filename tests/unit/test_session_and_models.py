@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from polyglot.core import languages
-from polyglot.core.models import IdSource, Utterance, UtteranceStatus
+from polyglot.core.models import IdSource, Speaker, Utterance, UtteranceStatus
 from polyglot.core.session import LanguagePolicy, Session
 
 
@@ -98,3 +98,48 @@ def test_same_language() -> None:
     assert not languages.same_language("en", "es")
     assert not languages.same_language(None, None)
     assert "es" in languages.known_codes()
+
+
+def test_utterances_default_to_the_other_speaker() -> None:
+    assert Utterance(1, 0).speaker is Speaker.OTHER
+    assert final(1).evolve(speaker=Speaker.USER).speaker is Speaker.USER
+
+
+def test_latest_answerable_ignores_the_users_own_turns() -> None:
+    s = Session("en")
+    s.put(final(1, "their question"))
+    s.put(final(2, "my answer").evolve(speaker=Speaker.USER))
+    target = s.latest_answerable()
+    assert target is not None and target.id == 1
+    s.remove(1)
+    assert s.latest_answerable() is None  # only the user has spoken
+
+
+def test_history_before_includes_the_users_turns() -> None:
+    s = Session("en")
+    s.put(final(1, "q1"))
+    s.put(final(2, "a1").evolve(speaker=Speaker.USER))
+    s.put(final(3, "q2"))
+    assert [(u.id, u.speaker) for u in s.history_before(3, limit=5)] == [
+        (1, Speaker.OTHER),
+        (2, Speaker.USER),
+    ]
+
+
+def test_id_source_hands_out_unique_ids_to_concurrent_streams() -> None:
+    import threading
+
+    ids = IdSource()
+    out: list[list[int]] = [[] for _ in range(8)]
+
+    def draw(bucket: list[int]) -> None:
+        bucket.extend(ids() for _ in range(500))
+
+    threads = [threading.Thread(target=draw, args=(b,)) for b in out]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    drawn = [i for bucket in out for i in bucket]
+    assert len(drawn) == len(set(drawn)) == 4000
+    assert all(bucket == sorted(bucket) for bucket in out)  # each stream sees increasing ids

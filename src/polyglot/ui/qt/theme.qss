@@ -14,7 +14,7 @@
 #CloseButton:hover { background: #c0392b; color: white; }
 
 #Controls { background: #1a1d23; }
-#StartButton, #SuggestButton {
+#StartButton, #SuggestButton, #LockButton {
     border: none; border-radius: 4px; padding: 5px 12px; font-weight: 600; color: white;
 }
 #StartButton { background: #2f7de1; }
@@ -24,6 +24,10 @@
 #StartButton:disabled { background: #3a3e47; color: #9aa0aa; }
 #SuggestButton { background: #3a3e47; }
 #SuggestButton:hover { background: #4a4f5a; }
+#LockButton { background: #3a3e47; padding: 4px 8px; }
+#LockButton:hover { background: #4a4f5a; }
+#LockButton[locked="true"] { background: #2f7de1; }
+#LockButton[locked="true"]:hover { background: #4a90e8; }
 #Status { color: #9aa0aa; padding-left: 6px; }
 #Status[level="warn"] { color: #e3b341; }
 #Status[level="error"] { color: #f0705f; }
@@ -32,11 +36,18 @@
 #Row { background: #1f2229; border-radius: 6px; }
 #Row[partial="true"] #Original { color: #9aa0aa; font-style: italic; }
 #Row[failed="true"] { border: 1px solid #6b2e28; }
+#Row[mine="true"] { background: #1c2736; }
+#Who { color: #6aa9ff; font-size: 8.5pt; font-weight: 600; }
 #Original { color: #e8e8ea; }
 #Translation { color: #8fc1ff; }
 #Note { color: #7d838d; font-size: 8.5pt; }
+#HintWarning { color: #e3b341; font-size: 8.5pt; }
+#MicTestStatus { color: #9aa0aa; font-size: 8.5pt; }
+#MicTestStatus[level="warn"] { color: #e3b341; }
+#MicTestStatus[level="error"] { color: #f0705f; }
 
-#Suggestions { background: #1b1e24; border-top: 1px solid #2c3039; }
+#Suggestions { background: #1b1e24; border: none; border-top: 1px solid #2c3039; }
+QSplitter::handle { background: #2c3039; height: 5px; }
 #ReplyTo { color: #9aa0aa; font-size: 9pt; }
 #Option { background: #232733; border-radius: 6px; }
 #Option:hover { background: #2a2f3d; }

@@ -17,14 +17,15 @@ log = logging.getLogger(__name__)
 class GlobalHotkeys(QObject):
     suggest = pyqtSignal()
     toggle_window = pyqtSignal()
+    toggle_lock = pyqtSignal()
 
     def __init__(self) -> None:
         super().__init__()
         self._listener: Any = None
 
-    def bind(self, suggest_combo: str, toggle_combo: str) -> bool:
+    def bind(self, suggest_combo: str, toggle_combo: str, lock_combo: str = "") -> bool:
         self.stop()
-        if not suggest_combo and not toggle_combo:
+        if not (suggest_combo or toggle_combo or lock_combo):
             return False
         try:
             from pynput import keyboard
@@ -36,6 +37,8 @@ class GlobalHotkeys(QObject):
             mapping[suggest_combo] = self.suggest.emit  # emitted from pynput's thread: queued
         if toggle_combo:
             mapping[toggle_combo] = self.toggle_window.emit
+        if lock_combo:
+            mapping[lock_combo] = self.toggle_lock.emit
         try:
             self._listener = keyboard.GlobalHotKeys(mapping)
             self._listener.start()
