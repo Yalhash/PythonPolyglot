@@ -166,7 +166,9 @@ def test_build_messages_without_history() -> None:
     c = ctx()
     c2 = SuggestionContext(c.target, (), "Spanish", "English", ConversationType.CASUAL, 1)
     _, user = (m["content"] for m in build_messages(c2))
-    assert user.startswith("They just said:")
+    assert ">>> [1] Them: ¿Qué opina?  (What do you think?)" in user
+    assert "Suggest replies to message [1] (marked >>>)." in user
+    assert "context only" not in user  # nothing came after it
     assert "casual" in build_messages(c2)[0]["content"]
 
 
@@ -179,8 +181,8 @@ def test_build_messages_labels_who_spoke() -> None:
     )
     c = SuggestionContext(base.target, (*base.history, user_turn), "Spanish", "English")
     _, user = (m["content"] for m in build_messages(c))
-    assert "- Them: Hola  (Hello)" in user
-    assert "- User: Lidero un equipo" in user
+    assert "    [1] Them: Hola  (Hello)" in user
+    assert "    [3] User: Lidero un equipo" in user
     assert "User is the person you are helping" in user
 
 
@@ -202,3 +204,39 @@ def test_build_messages_includes_the_profile_when_set() -> None:
 
 def test_build_messages_without_a_profile_has_no_profile_section() -> None:
     assert "About the user" not in build_messages(ctx())[0]["content"]
+
+
+def test_build_messages_marks_the_target_among_what_came_before_and_after() -> None:
+    from polyglot.core.models import Speaker
+
+    base = ctx()
+    later = (
+        Utterance(4, 0, 1, UtteranceStatus.FINAL, "Bueno, sigamos", "es", "Well, let's go on"),
+        Utterance(5, 0, 1, UtteranceStatus.FINAL, "Me gusta", "es", speaker=Speaker.USER),
+    )
+    c = SuggestionContext(base.target, base.history, "Spanish", "English", following=later)
+    _, user = (m["content"] for m in build_messages(c))
+    lines = user.splitlines()
+    assert lines[1:6] == [
+        "    [1] Them: Hola  (Hello)",
+        "    [2] Them: Bienvenido",
+        ">>> [3] Them: ¿Qué opina?  (What do you think?)",
+        "    [4] Them: Bueno, sigamos  (Well, let's go on)",
+        "    [5] User: Me gusta",
+    ]
+    assert "Suggest replies to message [3]" in user
+    assert "Messages after [3] are context only" in user
+    assert "not repeat what the User has already said" in user
+
+
+def test_build_messages_adds_the_users_instructions() -> None:
+    base = ctx()
+    assert "own instructions" not in build_messages(base)[0]["content"]
+    c = SuggestionContext(
+        base.target, base.history, "Spanish", "English",
+        instructions="Don't ask questions back unless the conversation needs one.",
+    )  # fmt: skip
+    system = build_messages(c)[0]["content"]
+    assert "The user's own instructions for the replies:\nDon't ask questions back" in system
+    assert "except where they conflict with the rules above" in system
+    assert system.index("own instructions") > system.index("Do not invent facts")

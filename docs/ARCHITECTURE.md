@@ -51,7 +51,7 @@ src/polyglot/
   adapters/
     audio/             wasapi_loopback, sounddevice_source, playback (WAV/array), resample (soxr)
     vad/               silero (onnxruntime), energy
-    asr/               faster_whisper
+    asr/               faster_whisper, parakeet (onnx-asr), qwen3 (qwen-asr); picked by asr.engine
     translate/         openai, google
     suggest/           openai (JSON-schema structured output)
     http.py            stdlib HTTPS client + status -> typed error mapping
@@ -246,3 +246,5 @@ skipped. Whenever the window is not hidden, the footer says "Visible in screen s
 | Suggest requests supersede each other (generation counter) | One request at a time; the newest press wins |
 | OpenAI model per feature, from a built-in list plus the account's live list (`adapters/openai_models.py`) | Model lineups change faster than releases; the dialog gets the list through an injected catalog, so the UI never imports an adapter |
 | Request options chosen per model family, with a one-step fallback on HTTP 400 naming a parameter | Older models take `temperature`; reasoning models reject it and take `reasoning_effort`, whose accepted values differ by family |
+| Three local ASR engines behind the one `Transcriber` port; Parakeet and Qwen3 are optional extras, imported only when their model loads | Whisper covers the most languages; Parakeet (ONNX Runtime) is faster and more accurate on a CPU for European languages; Qwen3-ASR covers more languages than Parakeet. None needs NVIDIA hardware, and the default install stays small |
+| Parakeet reports the requested language back; Qwen3's reported language counts as confident (it gives no score) | Parakeet has no language output; the lock rule (`asr.lock_after` agreeing utterances) still guards Qwen3's guesses |

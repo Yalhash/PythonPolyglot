@@ -91,6 +91,8 @@ class PipelineConfig:
     translate_timeout_s: float = 3.0
     suggest_timeout_s: float = 6.0
     suggestion_history: int = 6
+    suggestion_history_after: int = 4
+    suggestion_instructions: str = ""
     suggestion_history_chars: int = 3000
     suggestion_options: int = 2
     conversation_type: ConversationType = ConversationType.MEETING
@@ -483,10 +485,12 @@ class Coordinator:
         self._suggest_gen = 0
         self._context = ContextBuilder(
             max_utterances=cfg.suggestion_history,
+            max_after=cfg.suggestion_history_after,
             max_chars=cfg.suggestion_history_chars,
             conversation_type=cfg.conversation_type,
             max_options=cfg.suggestion_options,
             profile=cfg.profile,
+            instructions=cfg.suggestion_instructions,
         )
         self._ignore_upto = 0  # utterance IDs <= this were cleared by the user
         self._pending_network = 0
@@ -792,6 +796,8 @@ class Coordinator:
             self.session.target_language = cmd.arg
         elif cmd.name == "set_profile":
             self._context = self._context.with_profile(cmd.arg)
+        elif cmd.name == "set_instructions":
+            self._context = self._context.with_instructions(cmd.arg)
         elif cmd.name == "abandon_open":
             self._abandon_open()
         elif cmd.name == "retranslate":
@@ -947,7 +953,10 @@ class Pipeline:
     def _stop_in_background(self) -> None:
         # Called on the coordinator thread; stop() drains the coordinator, so it must
         # not run there.
-        threading.Thread(target=self.stop, name="polyglot-fatal-stop", daemon=True).start()
+        # The error stays on screen: the stop must not replace it with "Stopped".
+        threading.Thread(
+            target=self.stop, kwargs={"keep_error": True}, name="polyglot-fatal-stop", daemon=True
+        ).start()
 
     def _asr_depth(self) -> int:
         q = self._asr_queue
@@ -1033,7 +1042,7 @@ class Pipeline:
                     speaker=Speaker.USER,
                 )
 
-            coord.post(_Command("status", (PipelineState.LOADING, "loading speech model")))
+            coord.post(_Command("status", (PipelineState.LOADING, "")))  # the label says it all
             asr.start()
             frontend.start()
             try:
@@ -1061,8 +1070,12 @@ class Pipeline:
                     self._stop_user_frontend(flush=False)
                     coord.post(_SourceError(exc, Speaker.USER))
 
-    def stop(self, timeout: float = 10.0) -> None:
-        """Stop listening. The utterance in progress is finished and transcribed."""
+    def stop(self, timeout: float = 10.0, *, keep_error: bool = False) -> None:
+        """Stop listening. The utterance in progress is finished and transcribed.
+
+        ``keep_error`` is for stopping because of a fatal error (the model cannot load):
+        the status stays ERROR, with its message, instead of becoming STOPPED. ERROR is
+        not a listening state, so the UI still offers Start; the next start clears it."""
         with self._lock:
             if not self._running:
                 return
@@ -1078,7 +1091,8 @@ class Pipeline:
                     log.exception("microphone failed to stop cleanly")
             self._teardown(flush=True, timeout=timeout)
             self._coord.post(_Command("abandon_open"))
-            self._coord.post(_Command("status", (PipelineState.STOPPED, "")))
+            if not keep_error:
+                self._coord.post(_Command("status", (PipelineState.STOPPED, "")))
             # When stop() returns, the last utterance's transcript has been applied.
             self._coord.drain(timeout=2.0)
 
@@ -1145,6 +1159,11 @@ class Pipeline:
         """Use a new user profile for the next suggestion. Requests already in flight keep
         the profile they were built with."""
         self._coord.post(_Command("set_profile", profile))
+
+    def set_instructions(self, instructions: str) -> None:
+        """Use new extra instructions for the next suggestion. Requests already in flight
+        keep the instructions they were built with."""
+        self._coord.post(_Command("set_instructions", instructions))
 
     def retranslate_pending(self) -> None:
         """Translate final utterances still waiting for one (e.g. after a rebuild

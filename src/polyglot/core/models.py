@@ -166,13 +166,18 @@ class ConversationType(str, Enum):
 class SuggestionContext:
     """Everything a Suggester needs; built by the coordinator from the session."""
 
-    target: Utterance
-    history: tuple[Utterance, ...]
+    target: Utterance  # the sentence to reply to
+    history: tuple[Utterance, ...]  # said before it, oldest first
     source_language: str  # full name, e.g. "Spanish"
     user_language: str  # full name, e.g. "English"
     conversation_type: ConversationType = ConversationType.MEETING
     max_options: int = 2
     profile: UserProfile = field(default_factory=UserProfile)
+    #: Said after it, oldest first. Non-empty when replying to an earlier sentence (a
+    #: reply hotkey): the conversation has moved on, and the reply must still fit.
+    following: tuple[Utterance, ...] = ()
+    #: The user's own extra instructions for replies (tone, length, what to avoid).
+    instructions: str = ""
 
 
 class IdSource:

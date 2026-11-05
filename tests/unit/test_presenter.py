@@ -129,8 +129,9 @@ def test_suggestion_error_and_hints() -> None:
 
 def test_status_and_listening_state() -> None:
     p, view, _ = make()
-    p.handle(PipelineStatus(PipelineState.LOADING, "loading speech model"))
+    p.handle(PipelineStatus(PipelineState.LOADING))
     assert ("set_listening", (True, True)) in view.calls
+    assert view.status == StatusVM("Loading speech model…", "info")
     p.handle(PipelineStatus(PipelineState.FALLING_BEHIND, "slow"))
     assert view.status == StatusVM("Falling behind: slow", "warn")
     p.handle(PipelineStatus(PipelineState.STOPPED))

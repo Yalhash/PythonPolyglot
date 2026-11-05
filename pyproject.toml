@@ -21,6 +21,12 @@ dependencies = [
     "pynput>=1.7",
 ]
 
+[project.optional-dependencies]
+# Alternative speech engines (asr.engine). Whisper stays installed either way: Silero VAD
+# ships inside faster-whisper. Neither engine needs NVIDIA hardware.
+parakeet = ["onnx-asr[hub]>=0.12"]  # ONNX Runtime: any CPU; DirectML/CUDA GPUs if installed
+qwen3 = ["qwen-asr>=0.0.6"]         # PyTorch: CPU, or a CUDA GPU
+
 [project.scripts]
 polyglot = "polyglot.__main__:main"
 
@@ -51,7 +57,7 @@ pythonpath = ["src"]
 addopts = "-ra --strict-markers -m 'not slow'"
 timeout = 60
 markers = [
-    "slow: needs real models (Whisper/Silero); deselected by default, run with -m slow",
+    "slow: needs real models (Whisper/Silero, Parakeet/Qwen3 if installed); deselected by default, run with -m slow",
     "ui: needs Qt (runs offscreen)",
 ]
 qt_api = "pyqt6"

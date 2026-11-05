@@ -26,6 +26,7 @@ from PyQt6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QSpinBox,
     QTabWidget,
     QVBoxLayout,
@@ -45,6 +46,15 @@ from polyglot.ui.mic_test import (
 log = logging.getLogger(__name__)
 
 WHISPER_MODELS = ("tiny", "base", "small", "medium", "large-v3", "large-v3-turbo")
+ASR_ENGINES = (
+    ("Whisper (99 languages)", "whisper"),
+    ("Parakeet v3 (25 European languages, fast on CPU)", "parakeet"),
+    ("Qwen3-ASR (30 languages)", "qwen3"),
+)
+QWEN3_MODELS = (
+    ("0.6B (suits a CPU)", "Qwen/Qwen3-ASR-0.6B"),
+    ("1.7B (more accurate, needs a GPU)", "Qwen/Qwen3-ASR-1.7B"),
+)
 
 
 def _combo(items: list[tuple[str, Any]], current: Any) -> QComboBox:
@@ -160,6 +170,20 @@ def _language_items(with_auto: bool) -> list[tuple[str, Any]]:
     return items
 
 
+def _form_page() -> tuple[QWidget, QFormLayout]:
+    """A settings page: its rows packed at the top, any spare height left below them.
+
+    A QFormLayout set directly on a page hands spare height to rows that can grow, so
+    on a short tab (the dialog is as tall as its tallest tab) a row such as Model +
+    Refresh balloons and its label floats away from its field."""
+    page, outer, form = QWidget(), QVBoxLayout(), QFormLayout()
+    form.setContentsMargins(0, 0, 0, 0)  # the page layout already has the margins
+    outer.addLayout(form)
+    outer.addStretch(1)
+    page.setLayout(outer)
+    return page, form
+
+
 def _spin(lo: int, hi: int, value: int, suffix: str = "") -> QSpinBox:
     s = QSpinBox()
     s.setRange(lo, hi)
@@ -232,8 +256,7 @@ class SettingsDialog(QDialog):
     # ------------------------------------------------------------ tabs
     def _audio_tab(self, list_devices: Callable[[], list[dict[str, Any]]]) -> QWidget:
         a = self._config.audio
-        w, form = QWidget(), QFormLayout()
-        w.setLayout(form)
+        w, form = _form_page()
         self.source = _combo(
             [("Automatic (system audio on Windows)", "auto"), ("System audio (Windows loopback)", "loopback"),
              ("Input device", "device"), ("WAV file (testing)", "file")],
@@ -314,11 +337,13 @@ class SettingsDialog(QDialog):
 
     def _speech_tab(self) -> QWidget:
         s, v = self._config.asr, self._config.vad
-        w, form = QWidget(), QFormLayout()
-        w.setLayout(form)
+        w, form = _form_page()
+        self.asr_engine = _combo(list(ASR_ENGINES), s.engine)
         self.model = _combo([(m, m) for m in WHISPER_MODELS], s.model)
+        self.qwen3_model = _combo(list(QWEN3_MODELS), s.qwen3_model)
         self.asr_device = _combo(
-            [("Automatic", "auto"), ("CPU", "cpu"), ("NVIDIA GPU (CUDA)", "cuda")], s.device
+            [("Automatic (GPU if usable)", "auto"), ("CPU", "cpu"), ("NVIDIA GPU (CUDA)", "cuda")],
+            s.device,
         )
         self.compute_type = _combo(
             [
@@ -336,19 +361,33 @@ class SettingsDialog(QDialog):
         self.end_silence = _spin(100, 5000, v.end_silence_ms, " ms")
         self.partials = QCheckBox("Show text while the speaker is still talking")
         self.partials.setChecked(v.partial_interval_ms > 0)
+        form.addRow("Speech engine", self.asr_engine)
         form.addRow("Whisper model", self.model)
+        form.addRow("Qwen3-ASR model", self.qwen3_model)
         form.addRow("Run on", self.asr_device)
         form.addRow("Precision", self.compute_type)
+        self._asr_form = form
+        self.asr_engine.currentIndexChanged.connect(self._sync_engine)
+        self._sync_engine()
         form.addRow("Their language", self.source_lang)
         form.addRow("Speech detector", self.vad_engine)
         form.addRow("End of sentence after", self.end_silence)
         form.addRow("", self.partials)
         return w
 
+    def _sync_engine(self) -> None:
+        """Show only the settings the chosen speech engine uses."""
+        engine = self.asr_engine.currentData()
+        for widget, used in (
+            (self.model, engine == "whisper"),
+            (self.compute_type, engine == "whisper"),
+            (self.qwen3_model, engine == "qwen3"),
+        ):
+            self._asr_form.setRowVisible(widget, used)
+
     def _translation_tab(self) -> QWidget:
         t = self._config.translation
-        w, form = QWidget(), QFormLayout()
-        w.setLayout(form)
+        w, form = _form_page()
         self.translate_on = QCheckBox("Translate (sends transcribed text to the provider)")
         self.translate_on.setChecked(t.enabled)
         self.provider = _combo(
@@ -377,6 +416,8 @@ class SettingsDialog(QDialog):
         row, lay = QWidget(), QHBoxLayout()
         lay.setContentsMargins(0, 0, 0, 0)
         row.setLayout(lay)
+        # As tall as the combo box, never stretched to fill the page.
+        row.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         refresh = QPushButton("Refresh")
         refresh.setToolTip("Load the models your OpenAI API key can use")
         refresh.clicked.connect(lambda: self._show_account_models(fetch=True, force=True))
@@ -442,8 +483,7 @@ class SettingsDialog(QDialog):
 
     def _suggestions_tab(self) -> QWidget:
         s = self._config.suggestions
-        w, form = QWidget(), QFormLayout()
-        w.setLayout(form)
+        w, form = _form_page()
         self.suggest_on = QCheckBox("Suggest replies when I press the hotkey (uses OpenAI)")
         self.suggest_on.setChecked(s.enabled)
         self.suggest_model = _model_combo(self._known_models, s.model)
@@ -453,10 +493,22 @@ class SettingsDialog(QDialog):
             s.conversation_type,
         )
         self.option_count = _spin(1, 3, s.options)
+        self.suggest_instructions = QPlainTextEdit(s.instructions)
+        self.suggest_instructions.setPlaceholderText(
+            "Anything else replies should follow, e.g.\n"
+            "Keep replies under 20 words.\n"
+            "Don't ask questions back unless the conversation needs one."
+        )
+        self.suggest_instructions.setToolTip(
+            "Added to every suggestion request (sent to OpenAI). Up to 1000 characters. "
+            "Takes effect on the next suggestion."
+        )
+        self.suggest_instructions.setFixedHeight(84)
         form.addRow("", self.suggest_on)
         form.addRow("Model", self._with_refresh(self.suggest_model))
         form.addRow("Conversation", self.conversation)
         form.addRow("Replies to offer", self.option_count)
+        form.addRow("Extra instructions", self.suggest_instructions)
         return w
 
     #: (attribute, form label, placeholder) for the one-per-line fields of the profile
@@ -520,8 +572,7 @@ class SettingsDialog(QDialog):
 
     def _window_tab(self) -> QWidget:
         u = self._config.ui
-        w, form = QWidget(), QFormLayout()
-        w.setLayout(form)
+        w, form = _form_page()
         self.opacity = _dspin(0.2, 1.0, u.opacity, 0.05)
         self.hide_capture = QCheckBox("Hide this window from screen sharing (Windows 10 2004+)")
         self.hide_capture.setChecked(u.hide_from_capture)
@@ -554,7 +605,9 @@ class SettingsDialog(QDialog):
                           file=self.file.text().strip() or None,
                           user_mic=self.user_mic.isChecked(),
                           user_device=self.user_device.currentData())  # fmt: skip
-        c["asr"].update(model=self.model.currentData(), device=self.asr_device.currentData(),
+        c["asr"].update(engine=self.asr_engine.currentData(), model=self.model.currentData(),
+                        qwen3_model=self.qwen3_model.currentData(),
+                        device=self.asr_device.currentData(),
                         compute_type=self.compute_type.currentData(),
                         language=self.source_lang.currentData())  # fmt: skip
         c["vad"].update(
@@ -572,7 +625,8 @@ class SettingsDialog(QDialog):
                                 model=self.suggest_model.currentText().strip()
                                 or SuggestionsConfig.model_fields["model"].default,
                                 conversation_type=self.conversation.currentData(),
-                                options=self.option_count.value())  # fmt: skip
+                                options=self.option_count.value(),
+                                instructions=self.suggest_instructions.toPlainText())  # fmt: skip
         c["profile"].update(
             name=self.profile_name.text(),
             role=self.profile_role.text(),

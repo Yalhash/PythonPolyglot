@@ -1,4 +1,4 @@
-"""Language codes (as Whisper reports them) to English names, for prompts and the UI."""
+"""Language codes (as the speech recognizers report them) to English names, for prompts and the UI."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ _NAMES: dict[str, str] = {
     "no": "Norwegian", "pa": "Punjabi", "pl": "Polish", "pt": "Portuguese", "ro": "Romanian",
     "ru": "Russian", "sk": "Slovak", "sl": "Slovenian", "sr": "Serbian", "sv": "Swedish",
     "sw": "Swahili", "ta": "Tamil", "te": "Telugu", "th": "Thai", "tl": "Tagalog",
-    "tr": "Turkish", "uk": "Ukrainian", "ur": "Urdu", "vi": "Vietnamese", "zh": "Chinese",
+    "tr": "Turkish", "uk": "Ukrainian", "ur": "Urdu", "vi": "Vietnamese", "yue": "Cantonese", "zh": "Chinese",
 }  # fmt: skip
 
 

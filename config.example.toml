@@ -19,10 +19,17 @@ min_utterance_ms = 300
 partial_interval_ms = 0
 
 [asr]
-model = "base"
-device = "auto"
+engine = "whisper"     # whisper | parakeet | qwen3 (parakeet/qwen3: uv sync --extra <name>)
+device = "auto"        # auto | cpu | cuda (auto: a GPU the engine can use, else the CPU)
+# Whisper
+model = "base"         # tiny | base | small | medium | large-v3 | large-v3-turbo
 compute_type = "auto"  # auto | int8 | float16 | float32 | ... (auto: int8 on CPU, float16 on GPU)
 beam_size = 5
+# Parakeet v3: 25 European languages, fast on a CPU (ONNX Runtime)
+parakeet_model = "nemo-parakeet-tdt-0.6b-v3"
+parakeet_quantization = "int8"  # int8 | none
+# Qwen3-ASR: 30 languages (PyTorch). 0.6B suits a CPU; 1.7B is more accurate but wants a GPU.
+qwen3_model = "Qwen/Qwen3-ASR-0.6B"
 lock_after = 2
 lock_min_probability = 0.8
 queue_size = 8
@@ -40,8 +47,12 @@ model = "gpt-6-luna"  # gpt-4o-mini and gpt-4.1-mini retire 2027-01-14 (replacem
 timeout_s = 6.0
 conversation_type = "meeting"
 history = 6          # most utterances of earlier conversation to include
-history_chars = 3000 # soft cap on their total length (the newest is always kept)
+history_after = 4    # most utterances said after the sentence being answered (reply hotkeys)
+history_chars = 3000 # soft cap on the context's total length (the nearest is always kept)
 options = 2
+# Extra instructions added to every suggestion request (up to 1000 characters), e.g.
+# "Don't ask questions back unless the conversation needs one. Keep replies short."
+instructions = ""
 
 # What suggestions may say about you. Saved once, used every time. Sent to the AI provider with each
 # suggestion request: public, shareable details only (no health, politics, religion, money).

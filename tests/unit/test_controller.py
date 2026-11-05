@@ -207,3 +207,20 @@ def test_profile_change_applies_live_without_rebuilding_or_stopping() -> None:
     assert len(b.built) == 1 and c.listening  # not rebuilt, still listening
     assert Recording.profiles == [UserProfile(name="Sam", hobbies=("chess",))]
     assert saved[-1].profile.name == "Sam"  # persisted
+
+
+def test_instructions_change_applies_live_without_rebuilding_or_stopping() -> None:
+    c, b, saved, _ = make()
+    c.start()
+    new = c.config.model_copy(deep=True)
+    new.suggestions.instructions = "Don't ask questions back."
+    assert c.apply_config(new) == {"suggestions"}
+    assert len(b.built) == 1 and c.listening  # not rebuilt, still listening
+    assert "set_instructions" in b.built[0].calls
+    assert saved[-1].suggestions.instructions == "Don't ask questions back."
+    # Any other suggestions setting still rebuilds.
+    other = new.model_copy(deep=True)
+    other.suggestions.options = 3
+    other.suggestions.instructions = "Be brief."
+    c.apply_config(other)
+    assert len(b.built) == 2

@@ -85,3 +85,33 @@ def test_whisper_tiny_end_to_end(speech_wav: Path) -> None:
         assert all(u.source_lang == "en" for u in rec.finals())
     finally:
         p.close()
+
+
+def _speech_16k(path: Path) -> np.ndarray:
+    data, rate = read_wav(path)
+    r = make_resampler(rate)
+    return np.concatenate((r.process(data), r.flush()))
+
+
+def test_parakeet_transcribes_synthesized_speech(speech_wav: Path) -> None:
+    """Parakeet v3, int8 on the CPU (downloads ~670 MB on first run)."""
+    pytest.importorskip("onnx_asr")
+    pytest.importorskip("soxr")
+    from polyglot.adapters.asr.parakeet import ParakeetTranscriber
+
+    tr = ParakeetTranscriber(device="cpu")
+    tr.load()
+    text = tr.transcribe(_speech_16k(speech_wav), None).text.lower()
+    assert "test" in text and "transcription" in text
+
+
+def test_qwen3_transcribes_synthesized_speech(speech_wav: Path) -> None:
+    """Qwen3-ASR 0.6B on the CPU (downloads ~1.9 GB on first run)."""
+    pytest.importorskip("qwen_asr")
+    pytest.importorskip("soxr")
+    from polyglot.adapters.asr.qwen3 import Qwen3Transcriber
+
+    tr = Qwen3Transcriber(device="cpu")
+    tr.load()
+    t = tr.transcribe(_speech_16k(speech_wav), None)
+    assert "test" in t.text.lower() and t.language == "en"

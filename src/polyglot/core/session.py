@@ -90,6 +90,19 @@ class Session:
         ]
         return tuple(earlier[-limit:]) if limit > 0 else ()
 
+    def history_after(self, utterance_id: int, limit: int) -> tuple[Utterance, ...]:
+        """Final utterances with text, spoken after ``utterance_id``, oldest first, at most
+        ``limit`` of them (the nearest). Both speakers."""
+        later = [
+            u
+            for u in self.ordered()
+            if u.id > utterance_id
+            and u.is_final
+            and u.text
+            and u.status is not UtteranceStatus.FAILED
+        ]
+        return tuple(later[:limit]) if limit > 0 else ()
+
     def clear(self) -> None:
         self.utterances.clear()
         self.latest_final_id = None

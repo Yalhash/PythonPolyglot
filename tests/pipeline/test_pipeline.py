@@ -291,6 +291,7 @@ def test_suggestion_for_an_earlier_sentence(make_pipeline: Any, recorder: Record
     ctx = sug.contexts[0]
     assert ctx.target.text == "dos"
     assert [u.text for u in ctx.history] == ["uno"]
+    assert [u.text for u in ctx.following] == ["tres"]  # what came after is context too
 
 
 def test_suggestion_for_a_sentence_that_is_gone(make_pipeline: Any, recorder: Recorder) -> None:
@@ -459,6 +460,8 @@ def test_status_sequence(make_pipeline: Any, recorder: Recorder) -> None:
     assert wait_for(lambda: recorder.of(PipelineStatus)[-1].state is PipelineState.STOPPED)
     states = [s.state for s in recorder.of(PipelineStatus)]
     assert states[:2] == [PipelineState.LOADING, PipelineState.LISTENING]
+    # The LOADING label already says what is happening; a detail would repeat it.
+    assert recorder.of(PipelineStatus)[0].detail == ""
 
 
 @pytest.mark.parametrize("partial_ms", [320])
@@ -503,12 +506,29 @@ def test_model_load_failure_stops_capture_and_keeps_error(
     )
     p.start()
     assert wait_for(lambda: not p.running, 5), "capture should stop when the model cannot load"
-    assert wait_for(lambda: recorder.of(PipelineStatus)[-1].state is PipelineState.STOPPED, 5)
+    time.sleep(0.3)  # let the background stop finish posting
     states = [s.state for s in recorder.of(PipelineStatus)]
     assert PipelineState.ERROR in states
     assert PipelineState.FALLING_BEHIND not in states[states.index(PipelineState.ERROR) :]
+    # The error is the last word: stopping must not replace it with a bare "Stopped",
+    # or it only flashes on screen.
+    last = recorder.of(PipelineStatus)[-1]
+    assert last.state is PipelineState.ERROR and "no model" in last.detail
+    assert p.state is PipelineState.ERROR
     # nothing left "listening" forever
     assert all(u.status is not UtteranceStatus.LISTENING for u in recorder.utterances().values())
+
+
+def test_the_next_start_clears_a_kept_error(make_pipeline: Any, recorder: Recorder) -> None:
+    asr = ScriptedTranscriber(load_error=TranscriptionFailed("no model"))
+    p = make_pipeline(utterances_audio(1), transcriber=asr)
+    p.start()
+    assert wait_for(lambda: not p.running and p.state is PipelineState.ERROR, 5)
+    asr._load_error = None  # e.g. the missing package was installed
+    p.start()
+    assert wait_for(lambda: p.state is PipelineState.LISTENING, 5)
+    p.stop()
+    assert wait_for(lambda: recorder.of(PipelineStatus)[-1].state is PipelineState.STOPPED)
 
 
 def test_model_loaded_after_stop_does_not_claim_listening(
@@ -802,3 +822,20 @@ def test_a_live_microphone_is_transcribed_and_stopped_with_the_pipeline(
 def test_user_source_and_vad_must_come_together(make_pipeline: Any) -> None:
     with pytest.raises(ValueError, match="go together"):
         make_pipeline(utterances_audio(1), user_source=LiveFake())
+
+
+def test_instructions_apply_to_the_next_suggestion(make_pipeline: Any, recorder: Recorder) -> None:
+    sug = CannedSuggester()
+    p = make_pipeline(
+        utterances_audio(1),
+        transcriber=ScriptedTranscriber(TEXTS[:1]),
+        suggester=sug,
+        config=PipelineConfig(suggestion_instructions="Be brief."),
+    )
+    run_to_end(p)
+    p.request_suggestion()
+    assert wait_for(lambda: len(recorder.of(SuggestionsReady)) == 1)
+    p.set_instructions("No questions back.")
+    p.request_suggestion()
+    assert wait_for(lambda: len(recorder.of(SuggestionsReady)) == 2)
+    assert [c.instructions for c in sug.contexts] == ["Be brief.", "No questions back."]

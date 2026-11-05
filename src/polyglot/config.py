@@ -85,9 +85,20 @@ class VadConfig(_Section):
 
 
 class AsrConfig(_Section):
-    model: str = "base"
+    #: Which local speech recognizer runs. Parakeet and Qwen3-ASR are optional installs
+    #: (``uv sync --extra parakeet`` / ``--extra qwen3``); neither needs NVIDIA hardware.
+    engine: Literal["whisper", "parakeet", "qwen3"] = "whisper"
+    model: str = "base"  # Whisper model size, for engine = "whisper"
+    #: Parakeet model (an onnx-asr name), for engine = "parakeet".
+    parakeet_model: str = "nemo-parakeet-tdt-0.6b-v3"
+    #: int8 is about 4x smaller and faster on a CPU, with little loss; "none" = full precision.
+    parakeet_quantization: Literal["int8", "none"] = "int8"
+    #: Qwen3-ASR model (a Hugging Face ID), for engine = "qwen3". 0.6B suits a CPU.
+    qwen3_model: str = "Qwen/Qwen3-ASR-0.6B"
+    #: auto = a GPU when the engine's runtime can use one, else the CPU. Parakeet's "auto"
+    #: also uses DirectML (AMD/Intel GPUs) when onnxruntime-directml is installed.
     device: Literal["auto", "cpu", "cuda"] = "auto"
-    #: auto = the fastest type the device supports (int8 on CPU, float16 on CUDA).
+    #: Whisper only. auto = the fastest type the device supports (int8 on CPU, float16 on CUDA).
     #: "default" would keep the model's saved float16, which CPUs convert to slow float32.
     compute_type: Literal[
         "auto",
@@ -100,7 +111,7 @@ class AsrConfig(_Section):
         "bfloat16",
         "float32",
     ] = "auto"
-    beam_size: int = Field(5, ge=1, le=10)
+    beam_size: int = Field(5, ge=1, le=10)  # Whisper only
     language: str | None = None  # force a source language; None = auto-detect then lock
     lock_after: int = Field(2, ge=1, le=10)
     lock_min_probability: float = Field(0.8, ge=0.0, le=1.0)
@@ -143,8 +154,15 @@ class SuggestionsConfig(_Section):
     timeout_s: float = Field(6.0, gt=0.0, le=60.0)
     conversation_type: Literal["interview", "meeting", "casual"] = "meeting"
     history: int = Field(6, ge=0, le=30)  # most utterances of earlier conversation
+    #: Most utterances said after the sentence being answered (a reply hotkey can answer
+    #: an earlier sentence; what came next is context too). 0 = only what came before.
+    history_after: int = Field(4, ge=0, le=30)
     history_chars: int = Field(3000, ge=200, le=20000)  # soft cap on their total length
     options: int = Field(2, ge=1, le=3)
+    #: Free-form instructions added to every suggestion prompt: tone, length, things to
+    #: avoid (e.g. "don't ask questions back unless the conversation needs one").
+    #: Applies live, without restarting listening.
+    instructions: Annotated[str, StringConstraints(strip_whitespace=True, max_length=1000)] = ""
 
     @field_validator("model", mode="before")
     @classmethod
@@ -443,6 +461,18 @@ def save_config(config: AppConfig, path: Path | None = None) -> Path:
 
 def changed_sections(old: AppConfig, new: AppConfig) -> set[str]:
     return {s for s in SECTIONS if getattr(old, s) != getattr(new, s)}
+
+
+#: Settings that apply to a running pipeline without rebuilding it, as (section, field).
+LIVE_FIELDS = frozenset({("suggestions", "instructions")})
+
+
+def needs_rebuild(old: AppConfig, new: AppConfig, section: str) -> bool:
+    """Whether ``section`` changed in anything other than its live fields."""
+    before: BaseModel = getattr(old, section)
+    after: BaseModel = getattr(new, section)
+    live = {f: getattr(after, f) for s, f in LIVE_FIELDS if s == section}
+    return bool(before.model_copy(update=live) != after)
 
 
 # ----------------------------------------------------------------- secrets
