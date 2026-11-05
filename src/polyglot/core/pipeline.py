@@ -1036,7 +1036,7 @@ class Pipeline:
                     speaker=Speaker.USER,
                 )
 
-            coord.post(_Command("status", (PipelineState.LOADING, "loading speech model")))
+            coord.post(_Command("status", (PipelineState.LOADING, "")))  # the label says it all
             asr.start()
             frontend.start()
             try:

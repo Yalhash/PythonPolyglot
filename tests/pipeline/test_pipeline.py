@@ -459,6 +459,8 @@ def test_status_sequence(make_pipeline: Any, recorder: Recorder) -> None:
     assert wait_for(lambda: recorder.of(PipelineStatus)[-1].state is PipelineState.STOPPED)
     states = [s.state for s in recorder.of(PipelineStatus)]
     assert states[:2] == [PipelineState.LOADING, PipelineState.LISTENING]
+    # The LOADING label already says what is happening; a detail would repeat it.
+    assert recorder.of(PipelineStatus)[0].detail == ""
 
 
 @pytest.mark.parametrize("partial_ms", [320])
