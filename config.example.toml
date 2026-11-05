@@ -47,7 +47,8 @@ model = "gpt-6-luna"  # gpt-4o-mini and gpt-4.1-mini retire 2027-01-14 (replacem
 timeout_s = 6.0
 conversation_type = "meeting"
 history = 6          # most utterances of earlier conversation to include
-history_chars = 3000 # soft cap on their total length (the newest is always kept)
+history_after = 4    # most utterances said after the sentence being answered (reply hotkeys)
+history_chars = 3000 # soft cap on the context's total length (the nearest is always kept)
 options = 2
 
 # What suggestions may say about you. Saved once, used every time. Sent to the AI provider with each

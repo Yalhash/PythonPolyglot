@@ -291,6 +291,7 @@ def test_suggestion_for_an_earlier_sentence(make_pipeline: Any, recorder: Record
     ctx = sug.contexts[0]
     assert ctx.target.text == "dos"
     assert [u.text for u in ctx.history] == ["uno"]
+    assert [u.text for u in ctx.following] == ["tres"]  # what came after is context too
 
 
 def test_suggestion_for_a_sentence_that_is_gone(make_pipeline: Any, recorder: Recorder) -> None:

@@ -154,6 +154,9 @@ class SuggestionsConfig(_Section):
     timeout_s: float = Field(6.0, gt=0.0, le=60.0)
     conversation_type: Literal["interview", "meeting", "casual"] = "meeting"
     history: int = Field(6, ge=0, le=30)  # most utterances of earlier conversation
+    #: Most utterances said after the sentence being answered (a reply hotkey can answer
+    #: an earlier sentence; what came next is context too). 0 = only what came before.
+    history_after: int = Field(4, ge=0, le=30)
     history_chars: int = Field(3000, ge=200, le=20000)  # soft cap on their total length
     options: int = Field(2, ge=1, le=3)
 

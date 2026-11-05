@@ -108,3 +108,47 @@ def test_failed_and_unfinished_utterances_are_not_context() -> None:
         target,
     )
     assert [u.text for u in ContextBuilder().build(s, target).history] == ["ok"]
+
+
+def test_what_came_after_the_target_is_context_too() -> None:
+    target = final(2, "¿Qué opina?")
+    s = session_with(
+        final(1, "Hola"),
+        target,
+        final(3, "I agree", Speaker.USER),
+        final(4, "Bien"),
+        final(5, "Siguiente"),
+    )
+    ctx = ContextBuilder(max_after=2).build(s, target)
+    assert [u.id for u in ctx.history] == [1]
+    assert [u.id for u in ctx.following] == [3, 4]  # the nearest, oldest first
+    assert ContextBuilder(max_after=0).build(s, target).following == ()
+    latest = final(5, "Siguiente")
+    assert ContextBuilder().build(s, latest).following == ()  # nothing after the latest
+
+
+def test_the_character_budget_keeps_the_nearest_on_both_sides() -> None:
+    target = final(3)
+    s = session_with(
+        final(1, "a" * 100),
+        final(2, "b" * 100),
+        target,
+        final(4, "c" * 100),
+        final(5, "d" * 100),
+    )
+    ctx = ContextBuilder(max_chars=300).build(s, target)
+    # 2 and 4 (one step each way), then 1; 5 no longer fits.
+    assert [u.id for u in ctx.history] == [1, 2] and [u.id for u in ctx.following] == [4]
+    ctx = ContextBuilder(max_chars=150).build(s, target)
+    assert [u.id for u in ctx.history] == [2] and ctx.following == ()
+
+
+def test_failed_and_unfinished_utterances_after_the_target_are_not_context() -> None:
+    target = final(1)
+    s = session_with(
+        target,
+        final(2, "bad").evolve(status=UtteranceStatus.FAILED),
+        Utterance(id=3, t_start=0, status=UtteranceStatus.PARTIAL, text="partial"),
+        final(4, "ok"),
+    )
+    assert [u.text for u in ContextBuilder().build(s, target).following] == ["ok"]

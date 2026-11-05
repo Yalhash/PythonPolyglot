@@ -120,8 +120,11 @@ first: the playback would otherwise be picked up as the other person's audio.
 Settings → About you lets suggestions talk about *you*: your name, role, skills, languages,
 experience, hobbies and interests, how you want replies to sound, and what you want from the
 conversation. Fill it in once; it is saved in `config.toml` (the `[profile]` section) and
-used every time. Suggestions also see what was said earlier in the conversation, up to
-`suggestions.history` utterances or `suggestions.history_chars` characters.
+used every time. Suggestions also see the conversation around the sentence they answer:
+up to `suggestions.history` utterances before it and, when a reply hotkey answers an
+earlier sentence, up to `suggestions.history_after` after it, within
+`suggestions.history_chars` characters in all (the nearest are kept first). The prompt
+numbers the lines and marks the one to reply to.
 
 Everything in your profile is sent to the AI provider with each suggestion request, so it only has
 fields for things you would say out loud to the other person. There is deliberately no field

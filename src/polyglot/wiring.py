@@ -59,6 +59,7 @@ def pipeline_config(cfg: AppConfig) -> PipelineConfig:
         translate_timeout_s=cfg.translation.timeout_s,
         suggest_timeout_s=cfg.suggestions.timeout_s,
         suggestion_history=cfg.suggestions.history,
+        suggestion_history_after=cfg.suggestions.history_after,
         suggestion_history_chars=cfg.suggestions.history_chars,
         suggestion_options=cfg.suggestions.options,
         conversation_type=ConversationType(cfg.suggestions.conversation_type),

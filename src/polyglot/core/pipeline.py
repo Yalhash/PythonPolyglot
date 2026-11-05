@@ -91,6 +91,7 @@ class PipelineConfig:
     translate_timeout_s: float = 3.0
     suggest_timeout_s: float = 6.0
     suggestion_history: int = 6
+    suggestion_history_after: int = 4
     suggestion_history_chars: int = 3000
     suggestion_options: int = 2
     conversation_type: ConversationType = ConversationType.MEETING
@@ -483,6 +484,7 @@ class Coordinator:
         self._suggest_gen = 0
         self._context = ContextBuilder(
             max_utterances=cfg.suggestion_history,
+            max_after=cfg.suggestion_history_after,
             max_chars=cfg.suggestion_history_chars,
             conversation_type=cfg.conversation_type,
             max_options=cfg.suggestion_options,

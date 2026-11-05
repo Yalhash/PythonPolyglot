@@ -13,7 +13,13 @@ from polyglot.adapters.http import HttpClient, HttpsClient
 from polyglot.adapters.openai_models import chat_options
 from polyglot.adapters.translate.openai import DEFAULT_BASE_URL, chat_text
 from polyglot.core.errors import BadResponse
-from polyglot.core.models import ConversationType, ReplyOption, Speaker, SuggestionContext
+from polyglot.core.models import (
+    ConversationType,
+    ReplyOption,
+    Speaker,
+    SuggestionContext,
+    Utterance,
+)
 
 SCHEMA: dict[str, Any] = {
     "name": "reply_options",
@@ -49,17 +55,24 @@ _SETTING = {
 _SPEAKER = {Speaker.OTHER: "Them", Speaker.USER: "User"}
 
 
+def _line(n: int, u: Utterance, *, target: bool = False) -> str:
+    marker = ">>>" if target else "   "
+    text = f"{marker} [{n}] {_SPEAKER[u.speaker]}: {u.text}"
+    return text + (f"  ({u.translation})" if u.translation else "")
+
+
 def build_messages(ctx: SuggestionContext) -> list[dict[str, str]]:
-    history = "\n".join(
-        f"- {_SPEAKER[u.speaker]}: {u.text}" + (f"  ({u.translation})" if u.translation else "")
-        for u in ctx.history
-    )
-    target = ctx.target.text + (f"\n({ctx.target.translation})" if ctx.target.translation else "")
+    """The chat request. The conversation is one numbered transcript, oldest first, with
+    the sentence to reply to marked ``>>>`` and named by its number, so the model knows
+    which one to answer even when more was said after it."""
+    convo = (*ctx.history, ctx.target, *ctx.following)
+    n = len(ctx.history) + 1  # the target's number
+    transcript = "\n".join(_line(i, u, target=i == n) for i, u in enumerate(convo, start=1))
     system = (
         f"You help the user reply in {ctx.source_language} during {_SETTING[ctx.conversation_type]}. "
         f"The user is more comfortable in {ctx.user_language}. Suggest {ctx.max_options} short, "
-        "natural replies (one or two sentences each) that the user could say next, each a "
-        "different approach. For each, give `source_text` in "
+        "natural replies (one or two sentences each) to the one message you are asked about, "
+        "each a different approach. For each, give `source_text` in "
         f"{ctx.source_language} (what to say) and `user_text` in {ctx.user_language} "
         "(what it means). Do not invent facts about the user; if the reply needs a fact you "
         "do not know, keep it general."
@@ -73,11 +86,17 @@ def build_messages(ctx: SuggestionContext) -> list[dict[str, str]]:
             "never state personal facts that are not listed here."
         )
     user = (
-        "Earlier in the conversation (User is the person you are helping, Them is the other "
-        f"speaker):\n{history}\n\n"
-        if history
-        else ""
-    ) + f"They just said:\n{target}"
+        "Conversation (User is the person you are helping, Them is the other speaker; "
+        "translations in parentheses):\n"
+        f"{transcript}\n\n"
+        f"Suggest replies to message [{n}] (marked >>>)."
+    )
+    if ctx.following:
+        user += (
+            f" Messages after [{n}] are context only: the conversation has moved on since "
+            f"then, so the replies must answer [{n}] while still making sense now, and must "
+            "not repeat what the User has already said."
+        )
     return [{"role": "system", "content": system}, {"role": "user", "content": user}]
 
 
