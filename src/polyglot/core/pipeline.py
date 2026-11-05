@@ -92,6 +92,7 @@ class PipelineConfig:
     suggest_timeout_s: float = 6.0
     suggestion_history: int = 6
     suggestion_history_after: int = 4
+    suggestion_instructions: str = ""
     suggestion_history_chars: int = 3000
     suggestion_options: int = 2
     conversation_type: ConversationType = ConversationType.MEETING
@@ -489,6 +490,7 @@ class Coordinator:
             conversation_type=cfg.conversation_type,
             max_options=cfg.suggestion_options,
             profile=cfg.profile,
+            instructions=cfg.suggestion_instructions,
         )
         self._ignore_upto = 0  # utterance IDs <= this were cleared by the user
         self._pending_network = 0
@@ -794,6 +796,8 @@ class Coordinator:
             self.session.target_language = cmd.arg
         elif cmd.name == "set_profile":
             self._context = self._context.with_profile(cmd.arg)
+        elif cmd.name == "set_instructions":
+            self._context = self._context.with_instructions(cmd.arg)
         elif cmd.name == "abandon_open":
             self._abandon_open()
         elif cmd.name == "retranslate":
@@ -1155,6 +1159,11 @@ class Pipeline:
         """Use a new user profile for the next suggestion. Requests already in flight keep
         the profile they were built with."""
         self._coord.post(_Command("set_profile", profile))
+
+    def set_instructions(self, instructions: str) -> None:
+        """Use new extra instructions for the next suggestion. Requests already in flight
+        keep the instructions they were built with."""
+        self._coord.post(_Command("set_instructions", instructions))
 
     def retranslate_pending(self) -> None:
         """Translate final utterances still waiting for one (e.g. after a rebuild

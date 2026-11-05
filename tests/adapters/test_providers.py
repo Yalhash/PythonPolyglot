@@ -227,3 +227,16 @@ def test_build_messages_marks_the_target_among_what_came_before_and_after() -> N
     assert "Suggest replies to message [3]" in user
     assert "Messages after [3] are context only" in user
     assert "not repeat what the User has already said" in user
+
+
+def test_build_messages_adds_the_users_instructions() -> None:
+    base = ctx()
+    assert "own instructions" not in build_messages(base)[0]["content"]
+    c = SuggestionContext(
+        base.target, base.history, "Spanish", "English",
+        instructions="Don't ask questions back unless the conversation needs one.",
+    )  # fmt: skip
+    system = build_messages(c)[0]["content"]
+    assert "The user's own instructions for the replies:\nDon't ask questions back" in system
+    assert "except where they conflict with the rules above" in system
+    assert system.index("own instructions") > system.index("Do not invent facts")

@@ -85,6 +85,14 @@ def build_messages(ctx: SuggestionContext) -> list[dict[str, str]]:
             "preferred tone if one is given. Do not bring up unrelated personal details, and "
             "never state personal facts that are not listed here."
         )
+    if ctx.instructions:
+        system += (
+            "\n\nThe user's own instructions for the replies:\n"
+            f"{ctx.instructions}\n"
+            "Follow them, except where they conflict with the rules above: replies are "
+            f"always in {ctx.source_language} with a {ctx.user_language} meaning, in the "
+            "requested format, and never invent facts about the user."
+        )
     user = (
         "Conversation (User is the person you are helping, Them is the other speaker; "
         "translations in parentheses):\n"

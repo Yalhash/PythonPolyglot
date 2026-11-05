@@ -822,3 +822,20 @@ def test_a_live_microphone_is_transcribed_and_stopped_with_the_pipeline(
 def test_user_source_and_vad_must_come_together(make_pipeline: Any) -> None:
     with pytest.raises(ValueError, match="go together"):
         make_pipeline(utterances_audio(1), user_source=LiveFake())
+
+
+def test_instructions_apply_to_the_next_suggestion(make_pipeline: Any, recorder: Recorder) -> None:
+    sug = CannedSuggester()
+    p = make_pipeline(
+        utterances_audio(1),
+        transcriber=ScriptedTranscriber(TEXTS[:1]),
+        suggester=sug,
+        config=PipelineConfig(suggestion_instructions="Be brief."),
+    )
+    run_to_end(p)
+    p.request_suggestion()
+    assert wait_for(lambda: len(recorder.of(SuggestionsReady)) == 1)
+    p.set_instructions("No questions back.")
+    p.request_suggestion()
+    assert wait_for(lambda: len(recorder.of(SuggestionsReady)) == 2)
+    assert [c.instructions for c in sug.contexts] == ["Be brief.", "No questions back."]

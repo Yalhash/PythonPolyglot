@@ -126,6 +126,11 @@ earlier sentence, up to `suggestions.history_after` after it, within
 `suggestions.history_chars` characters in all (the nearest are kept first). The prompt
 numbers the lines and marks the one to reply to.
 
+Settings → Suggestions → Extra instructions adds your own rules to every request
+(`suggestions.instructions`, up to 1000 characters), for example "Don't ask questions back
+unless the conversation needs one." Like the profile, it is sent to OpenAI and applies to the
+next suggestion without restarting listening.
+
 Everything in your profile is sent to the AI provider with each suggestion request, so it only has
 fields for things you would say out loud to the other person. There is deliberately no field
 for health, politics, religion, money or other private details, and the free-text fields are

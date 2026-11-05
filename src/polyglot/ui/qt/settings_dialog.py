@@ -480,10 +480,22 @@ class SettingsDialog(QDialog):
             s.conversation_type,
         )
         self.option_count = _spin(1, 3, s.options)
+        self.suggest_instructions = QPlainTextEdit(s.instructions)
+        self.suggest_instructions.setPlaceholderText(
+            "Anything else replies should follow, e.g.\n"
+            "Keep replies under 20 words.\n"
+            "Don't ask questions back unless the conversation needs one."
+        )
+        self.suggest_instructions.setToolTip(
+            "Added to every suggestion request (sent to OpenAI). Up to 1000 characters. "
+            "Takes effect on the next suggestion."
+        )
+        self.suggest_instructions.setFixedHeight(84)
         form.addRow("", self.suggest_on)
         form.addRow("Model", self._with_refresh(self.suggest_model))
         form.addRow("Conversation", self.conversation)
         form.addRow("Replies to offer", self.option_count)
+        form.addRow("Extra instructions", self.suggest_instructions)
         return w
 
     #: (attribute, form label, placeholder) for the one-per-line fields of the profile
@@ -601,7 +613,8 @@ class SettingsDialog(QDialog):
                                 model=self.suggest_model.currentText().strip()
                                 or SuggestionsConfig.model_fields["model"].default,
                                 conversation_type=self.conversation.currentData(),
-                                options=self.option_count.value())  # fmt: skip
+                                options=self.option_count.value(),
+                                instructions=self.suggest_instructions.toPlainText())  # fmt: skip
         c["profile"].update(
             name=self.profile_name.text(),
             role=self.profile_role.text(),

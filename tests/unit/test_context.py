@@ -152,3 +152,13 @@ def test_failed_and_unfinished_utterances_after_the_target_are_not_context() -> 
         final(4, "ok"),
     )
     assert [u.text for u in ContextBuilder().build(s, target).following] == ["ok"]
+
+
+def test_instructions_reach_the_context() -> None:
+    target = final(1)
+    s = session_with(target)
+    assert ContextBuilder().build(s, target).instructions == ""
+    b = ContextBuilder(instructions="Be brief.")
+    assert b.build(s, target).instructions == "Be brief."
+    c = b.with_instructions("No questions.")
+    assert c.build(s, target).instructions == "No questions." and b.instructions == "Be brief."

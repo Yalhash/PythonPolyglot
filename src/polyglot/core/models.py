@@ -176,6 +176,8 @@ class SuggestionContext:
     #: Said after it, oldest first. Non-empty when replying to an earlier sentence (a
     #: reply hotkey): the conversation has moved on, and the reply must still fit.
     following: tuple[Utterance, ...] = ()
+    #: The user's own extra instructions for replies (tone, length, what to avoid).
+    instructions: str = ""
 
 
 class IdSource:

@@ -33,9 +33,13 @@ class ContextBuilder:
     conversation_type: ConversationType = ConversationType.MEETING
     max_options: int = 2
     profile: UserProfile = field(default_factory=UserProfile)
+    instructions: str = ""  # the user's extra instructions for replies
 
     def with_profile(self, profile: UserProfile) -> ContextBuilder:
         return replace(self, profile=profile)
+
+    def with_instructions(self, instructions: str) -> ContextBuilder:
+        return replace(self, instructions=instructions)
 
     def build(self, session: Session, target: Utterance) -> SuggestionContext:
         history, following = self._window(session, target)
@@ -48,6 +52,7 @@ class ContextBuilder:
             conversation_type=self.conversation_type,
             max_options=self.max_options,
             profile=self.profile,
+            instructions=self.instructions,
         )
 
     def _window(

@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 
-from polyglot.config import AppConfig, Secrets, changed_sections, save_config
+from polyglot.config import AppConfig, Secrets, changed_sections, needs_rebuild, save_config
 from polyglot.core.errors import ConfigError, PolyglotError
 from polyglot.core.events import EventBus, PipelineState, PipelineStatus, StageError
 from polyglot.core.models import ErrorKind
@@ -137,10 +137,13 @@ class AppController:
                 self.bus.publish(
                     StageError("settings", ErrorKind.INTERNAL, f"could not save settings: {exc}")
                 )
-        if changed & PIPELINE_SECTIONS:
-            self.rebuild()  # the new pipeline is built with the current profile
-        elif "profile" in changed and self.built is not None:
-            self.built.pipeline.set_profile(new.profile.to_core())  # next suggestion uses it
+        if any(needs_rebuild(old, new, s) for s in changed & PIPELINE_SECTIONS):
+            self.rebuild()  # the new pipeline is built with the current profile and instructions
+        elif self.built is not None:  # live changes: the next suggestion uses them
+            if "profile" in changed:
+                self.built.pipeline.set_profile(new.profile.to_core())
+            if old.suggestions.instructions != new.suggestions.instructions:
+                self.built.pipeline.set_instructions(new.suggestions.instructions)
         if old.asr.language != new.asr.language and self.built is not None:
             self.built.pipeline.set_language(new.asr.language)  # forced language, or unlock
         return changed

@@ -350,3 +350,18 @@ def test_speech_engine_defaults_to_whisper_and_validates(tmp_path: Path) -> None
     path.write_text('[asr]\nengine = "deepspeech"\n', encoding="utf-8")
     with pytest.raises(ConfigError):
         load_config(path, environ={})
+
+
+def test_suggestion_instructions_are_trimmed_and_capped(tmp_path: Path) -> None:
+    from polyglot.config import needs_rebuild
+
+    assert AppConfig().suggestions.instructions == ""
+    cfg = load_config_from(tmp_path, {"suggestions": {"instructions": "  Be brief.  "}})
+    assert cfg.suggestions.instructions == "Be brief."
+    with pytest.raises(ConfigError):
+        load_config_from(tmp_path, {"suggestions": {"instructions": "x" * 1001}})
+    a, b = AppConfig(), AppConfig()
+    b.suggestions.instructions = "Be brief."
+    assert not needs_rebuild(a, b, "suggestions")  # instructions alone apply live
+    b.suggestions.options = 3
+    assert needs_rebuild(a, b, "suggestions")

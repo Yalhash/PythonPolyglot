@@ -757,3 +757,15 @@ def test_settings_dialog_picks_the_speech_engine(qtbot: Any) -> None:
     assert dlg.result_config is not None
     asr = dlg.result_config.asr
     assert asr.engine == "parakeet" and asr.qwen3_model == "Qwen/Qwen3-ASR-1.7B"
+
+
+def test_settings_dialog_saves_extra_instructions(qtbot: Any) -> None:
+    from polyglot.ui.qt.settings_dialog import SettingsDialog
+
+    dlg = SettingsDialog(AppConfig(), Secrets(MemorySecretStore(), environ={}), lambda: [])
+    qtbot.addWidget(dlg)
+    assert dlg.suggest_instructions.toPlainText() == ""
+    dlg.suggest_instructions.setPlainText("Keep it short.\nNo questions back.")
+    dlg._save()
+    assert dlg.result_config is not None
+    assert dlg.result_config.suggestions.instructions == "Keep it short.\nNo questions back."

@@ -159,6 +159,10 @@ class SuggestionsConfig(_Section):
     history_after: int = Field(4, ge=0, le=30)
     history_chars: int = Field(3000, ge=200, le=20000)  # soft cap on their total length
     options: int = Field(2, ge=1, le=3)
+    #: Free-form instructions added to every suggestion prompt: tone, length, things to
+    #: avoid (e.g. "don't ask questions back unless the conversation needs one").
+    #: Applies live, without restarting listening.
+    instructions: Annotated[str, StringConstraints(strip_whitespace=True, max_length=1000)] = ""
 
     @field_validator("model", mode="before")
     @classmethod
@@ -457,6 +461,16 @@ def save_config(config: AppConfig, path: Path | None = None) -> Path:
 
 def changed_sections(old: AppConfig, new: AppConfig) -> set[str]:
     return {s for s in SECTIONS if getattr(old, s) != getattr(new, s)}
+
+
+#: Settings that apply to a running pipeline without rebuilding it, as (section, field).
+LIVE_FIELDS = frozenset({("suggestions", "instructions")})
+
+
+def needs_rebuild(old: AppConfig, new: AppConfig, section: str) -> bool:
+    """Whether ``section`` changed in anything other than its live fields."""
+    live = {f: getattr(getattr(new, section), f) for s, f in LIVE_FIELDS if s == section}
+    return getattr(old, section).model_copy(update=live) != getattr(new, section)
 
 
 # ----------------------------------------------------------------- secrets
