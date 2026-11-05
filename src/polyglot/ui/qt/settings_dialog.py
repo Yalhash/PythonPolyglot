@@ -26,6 +26,7 @@ from PyQt6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QSpinBox,
     QTabWidget,
     QVBoxLayout,
@@ -169,6 +170,20 @@ def _language_items(with_auto: bool) -> list[tuple[str, Any]]:
     return items
 
 
+def _form_page() -> tuple[QWidget, QFormLayout]:
+    """A settings page: its rows packed at the top, any spare height left below them.
+
+    A QFormLayout set directly on a page hands spare height to rows that can grow, so
+    on a short tab (the dialog is as tall as its tallest tab) a row such as Model +
+    Refresh balloons and its label floats away from its field."""
+    page, outer, form = QWidget(), QVBoxLayout(), QFormLayout()
+    form.setContentsMargins(0, 0, 0, 0)  # the page layout already has the margins
+    outer.addLayout(form)
+    outer.addStretch(1)
+    page.setLayout(outer)
+    return page, form
+
+
 def _spin(lo: int, hi: int, value: int, suffix: str = "") -> QSpinBox:
     s = QSpinBox()
     s.setRange(lo, hi)
@@ -241,8 +256,7 @@ class SettingsDialog(QDialog):
     # ------------------------------------------------------------ tabs
     def _audio_tab(self, list_devices: Callable[[], list[dict[str, Any]]]) -> QWidget:
         a = self._config.audio
-        w, form = QWidget(), QFormLayout()
-        w.setLayout(form)
+        w, form = _form_page()
         self.source = _combo(
             [("Automatic (system audio on Windows)", "auto"), ("System audio (Windows loopback)", "loopback"),
              ("Input device", "device"), ("WAV file (testing)", "file")],
@@ -323,8 +337,7 @@ class SettingsDialog(QDialog):
 
     def _speech_tab(self) -> QWidget:
         s, v = self._config.asr, self._config.vad
-        w, form = QWidget(), QFormLayout()
-        w.setLayout(form)
+        w, form = _form_page()
         self.asr_engine = _combo(list(ASR_ENGINES), s.engine)
         self.model = _combo([(m, m) for m in WHISPER_MODELS], s.model)
         self.qwen3_model = _combo(list(QWEN3_MODELS), s.qwen3_model)
@@ -374,8 +387,7 @@ class SettingsDialog(QDialog):
 
     def _translation_tab(self) -> QWidget:
         t = self._config.translation
-        w, form = QWidget(), QFormLayout()
-        w.setLayout(form)
+        w, form = _form_page()
         self.translate_on = QCheckBox("Translate (sends transcribed text to the provider)")
         self.translate_on.setChecked(t.enabled)
         self.provider = _combo(
@@ -404,6 +416,8 @@ class SettingsDialog(QDialog):
         row, lay = QWidget(), QHBoxLayout()
         lay.setContentsMargins(0, 0, 0, 0)
         row.setLayout(lay)
+        # As tall as the combo box, never stretched to fill the page.
+        row.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         refresh = QPushButton("Refresh")
         refresh.setToolTip("Load the models your OpenAI API key can use")
         refresh.clicked.connect(lambda: self._show_account_models(fetch=True, force=True))
@@ -469,8 +483,7 @@ class SettingsDialog(QDialog):
 
     def _suggestions_tab(self) -> QWidget:
         s = self._config.suggestions
-        w, form = QWidget(), QFormLayout()
-        w.setLayout(form)
+        w, form = _form_page()
         self.suggest_on = QCheckBox("Suggest replies when I press the hotkey (uses OpenAI)")
         self.suggest_on.setChecked(s.enabled)
         self.suggest_model = _model_combo(self._known_models, s.model)
@@ -559,8 +572,7 @@ class SettingsDialog(QDialog):
 
     def _window_tab(self) -> QWidget:
         u = self._config.ui
-        w, form = QWidget(), QFormLayout()
-        w.setLayout(form)
+        w, form = _form_page()
         self.opacity = _dspin(0.2, 1.0, u.opacity, 0.05)
         self.hide_capture = QCheckBox("Hide this window from screen sharing (Windows 10 2004+)")
         self.hide_capture.setChecked(u.hide_from_capture)

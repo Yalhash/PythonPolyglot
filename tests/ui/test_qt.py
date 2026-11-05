@@ -17,7 +17,7 @@ pytest.importorskip("PyQt6")
 pytest.importorskip("pytestqt")
 
 from PyQt6.QtCore import QEvent, QThread, QTimer
-from PyQt6.QtWidgets import QApplication, QDialog, QLabel, QWidget
+from PyQt6.QtWidgets import QApplication, QDialog, QLabel, QTabWidget, QWidget
 
 from polyglot.adapters.fakes import NoopShield
 from polyglot.adapters.secrets import MemorySecretStore
@@ -769,3 +769,23 @@ def test_settings_dialog_saves_extra_instructions(qtbot: Any) -> None:
     dlg._save()
     assert dlg.result_config is not None
     assert dlg.result_config.suggestions.instructions == "Keep it short.\nNo questions back."
+
+
+def test_settings_rows_keep_their_natural_height_in_a_tall_dialog(qtbot: Any) -> None:
+    """Spare height goes below the rows, not into them: the Model + Refresh row used to
+    stretch to fill a short tab, leaving its label far from its field."""
+    from polyglot.ui.qt.settings_dialog import SettingsDialog
+
+    dlg = SettingsDialog(AppConfig(), Secrets(MemorySecretStore(), environ={}), lambda: [])
+    qtbot.addWidget(dlg)
+    dlg.resize(700, 1400)
+    dlg.show()
+    qtbot.waitExposed(dlg)
+    tabs = dlg.findChild(QTabWidget)
+    assert tabs is not None
+    for name, box in (("Suggestions", dlg.suggest_model), ("Translation", dlg.translate_model)):
+        tabs.setCurrentIndex(next(i for i in range(tabs.count()) if tabs.tabText(i) == name))
+        QApplication.processEvents()
+        row = box.parentWidget()
+        assert row is not None
+        assert row.height() <= row.sizeHint().height() + 2, name
