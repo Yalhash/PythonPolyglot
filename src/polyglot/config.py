@@ -469,8 +469,10 @@ LIVE_FIELDS = frozenset({("suggestions", "instructions")})
 
 def needs_rebuild(old: AppConfig, new: AppConfig, section: str) -> bool:
     """Whether ``section`` changed in anything other than its live fields."""
-    live = {f: getattr(getattr(new, section), f) for s, f in LIVE_FIELDS if s == section}
-    return getattr(old, section).model_copy(update=live) != getattr(new, section)
+    before: BaseModel = getattr(old, section)
+    after: BaseModel = getattr(new, section)
+    live = {f: getattr(after, f) for s, f in LIVE_FIELDS if s == section}
+    return bool(before.model_copy(update=live) != after)
 
 
 # ----------------------------------------------------------------- secrets
