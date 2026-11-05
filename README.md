@@ -4,10 +4,12 @@ A small always-on-top window that listens to the other side of a call, transcrib
 locally, translates it into your language, and suggests replies in theirs when you
 press a hotkey.
 
-* **Local speech recognition** with [faster-whisper](https://github.com/SYSTRAN/faster-whisper).
+* **Local speech recognition**: [faster-whisper](https://github.com/SYSTRAN/faster-whisper)
+  by default, or [Parakeet v3](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3) or
+  [Qwen3-ASR](https://github.com/QwenLM/Qwen3-ASR) (see [Speech engines](#speech-engines)).
   Audio never leaves your machine.
 * **Sentence-aware**: voice-activity detection (Silero VAD) cuts audio at the speaker's
-  pauses, not every N seconds, so Whisper and the translator see whole sentences.
+  pauses, not every N seconds, so the recognizer and the translator see whole sentences.
 * **Translation** (OpenAI or Google) and **reply suggestions** (OpenAI) are opt-in.
   Only text is sent, and only once you enable them.
 * **Hidden from screen sharing on Windows 10 2004+**: the window stays visible to you
@@ -28,6 +30,23 @@ uv run polyglot         # the real thing
 ```
 
 On first real run Whisper downloads its model (`base` is about 150 MB).
+
+### Speech engines
+
+Settings → Speech → Speech engine picks the local recognizer (`asr.engine` in
+`config.toml`). All three run without an NVIDIA GPU; install the optional ones first:
+
+| Engine | Install | Languages | Runs on | Notes |
+| --- | --- | --- | --- | --- |
+| Whisper (default) | included | 99 | CPU, CUDA | Model size under "Whisper model". |
+| Parakeet v3 | `uv sync --extra parakeet` | 25 European (incl. French) | CPU (int8), CUDA, DirectML | Fastest and most accurate on a CPU. ~670 MB download. Does not report the language: set "Their language" so translation and suggestions know it. |
+| Qwen3-ASR | `uv sync --extra qwen3` | 30, plus Chinese dialects | CPU (float32), CUDA | 0.6B suits a CPU; 1.7B wants a GPU. Pulls in PyTorch (~1 GB). Detects the language. |
+
+Both extras together: `uv sync --extra parakeet --extra qwen3`. The model downloads on the
+first run with that engine. "Run on: Automatic" uses a GPU when the engine's runtime can
+use one and the CPU otherwise. For Parakeet on an AMD or Intel GPU, replace ONNX Runtime
+with its DirectML build (`uv pip uninstall onnxruntime && uv pip install
+onnxruntime-directml`, redone after each `uv sync`); Automatic then picks it up.
 
 ### Hotkeys (system-wide)
 
@@ -130,7 +149,7 @@ uv run polyglot --headless                     # listen live, print to the termi
 ```bash
 uv sync                          # dev tools included
 uv run pytest                    # fast suite: no models, devices or network
-uv run pytest -m slow            # real Whisper tiny + Silero (needs espeak-ng)
+uv run pytest -m slow            # real Whisper tiny + Silero (needs espeak-ng); Parakeet/Qwen3 too if installed
 uv run ruff check . && uv run ruff format .
 uv run mypy
 ```

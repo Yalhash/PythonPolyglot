@@ -736,3 +736,24 @@ def test_suggestions_panel_is_sized_to_its_replies(qtbot: Any) -> None:
     # No empty band between the "Replying to" line and the first reply.
     gap = window._reply_gap()
     assert gap <= 12
+
+
+def test_settings_dialog_picks_the_speech_engine(qtbot: Any) -> None:
+    from polyglot.ui.qt.settings_dialog import SettingsDialog
+
+    dlg = SettingsDialog(AppConfig(), Secrets(MemorySecretStore(), environ={}), lambda: [])
+    qtbot.addWidget(dlg)
+    form = dlg._asr_form
+    assert dlg.asr_engine.currentData() == "whisper"
+    assert form.isRowVisible(dlg.model) and not form.isRowVisible(dlg.qwen3_model)
+    dlg.asr_engine.setCurrentIndex(dlg.asr_engine.findData("qwen3"))
+    # Only the chosen engine's settings show; Whisper's model and precision hide.
+    assert form.isRowVisible(dlg.qwen3_model)
+    assert not form.isRowVisible(dlg.model) and not form.isRowVisible(dlg.compute_type)
+    dlg.qwen3_model.setCurrentIndex(dlg.qwen3_model.findData("Qwen/Qwen3-ASR-1.7B"))
+    dlg.asr_engine.setCurrentIndex(dlg.asr_engine.findData("parakeet"))
+    assert not form.isRowVisible(dlg.qwen3_model) and not form.isRowVisible(dlg.model)
+    dlg._save()
+    assert dlg.result_config is not None
+    asr = dlg.result_config.asr
+    assert asr.engine == "parakeet" and asr.qwen3_model == "Qwen/Qwen3-ASR-1.7B"

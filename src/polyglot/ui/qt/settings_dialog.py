@@ -45,6 +45,15 @@ from polyglot.ui.mic_test import (
 log = logging.getLogger(__name__)
 
 WHISPER_MODELS = ("tiny", "base", "small", "medium", "large-v3", "large-v3-turbo")
+ASR_ENGINES = (
+    ("Whisper (99 languages)", "whisper"),
+    ("Parakeet v3 (25 European languages, fast on CPU)", "parakeet"),
+    ("Qwen3-ASR (30 languages)", "qwen3"),
+)
+QWEN3_MODELS = (
+    ("0.6B (suits a CPU)", "Qwen/Qwen3-ASR-0.6B"),
+    ("1.7B (more accurate, needs a GPU)", "Qwen/Qwen3-ASR-1.7B"),
+)
 
 
 def _combo(items: list[tuple[str, Any]], current: Any) -> QComboBox:
@@ -316,9 +325,12 @@ class SettingsDialog(QDialog):
         s, v = self._config.asr, self._config.vad
         w, form = QWidget(), QFormLayout()
         w.setLayout(form)
+        self.asr_engine = _combo(list(ASR_ENGINES), s.engine)
         self.model = _combo([(m, m) for m in WHISPER_MODELS], s.model)
+        self.qwen3_model = _combo(list(QWEN3_MODELS), s.qwen3_model)
         self.asr_device = _combo(
-            [("Automatic", "auto"), ("CPU", "cpu"), ("NVIDIA GPU (CUDA)", "cuda")], s.device
+            [("Automatic (GPU if usable)", "auto"), ("CPU", "cpu"), ("NVIDIA GPU (CUDA)", "cuda")],
+            s.device,
         )
         self.compute_type = _combo(
             [
@@ -336,14 +348,29 @@ class SettingsDialog(QDialog):
         self.end_silence = _spin(100, 5000, v.end_silence_ms, " ms")
         self.partials = QCheckBox("Show text while the speaker is still talking")
         self.partials.setChecked(v.partial_interval_ms > 0)
+        form.addRow("Speech engine", self.asr_engine)
         form.addRow("Whisper model", self.model)
+        form.addRow("Qwen3-ASR model", self.qwen3_model)
         form.addRow("Run on", self.asr_device)
         form.addRow("Precision", self.compute_type)
+        self._asr_form = form
+        self.asr_engine.currentIndexChanged.connect(self._sync_engine)
+        self._sync_engine()
         form.addRow("Their language", self.source_lang)
         form.addRow("Speech detector", self.vad_engine)
         form.addRow("End of sentence after", self.end_silence)
         form.addRow("", self.partials)
         return w
+
+    def _sync_engine(self) -> None:
+        """Show only the settings the chosen speech engine uses."""
+        engine = self.asr_engine.currentData()
+        for widget, used in (
+            (self.model, engine == "whisper"),
+            (self.compute_type, engine == "whisper"),
+            (self.qwen3_model, engine == "qwen3"),
+        ):
+            self._asr_form.setRowVisible(widget, used)
 
     def _translation_tab(self) -> QWidget:
         t = self._config.translation
@@ -554,7 +581,9 @@ class SettingsDialog(QDialog):
                           file=self.file.text().strip() or None,
                           user_mic=self.user_mic.isChecked(),
                           user_device=self.user_device.currentData())  # fmt: skip
-        c["asr"].update(model=self.model.currentData(), device=self.asr_device.currentData(),
+        c["asr"].update(engine=self.asr_engine.currentData(), model=self.model.currentData(),
+                        qwen3_model=self.qwen3_model.currentData(),
+                        device=self.asr_device.currentData(),
                         compute_type=self.compute_type.currentData(),
                         language=self.source_lang.currentData())  # fmt: skip
         c["vad"].update(

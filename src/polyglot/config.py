@@ -85,9 +85,20 @@ class VadConfig(_Section):
 
 
 class AsrConfig(_Section):
-    model: str = "base"
+    #: Which local speech recognizer runs. Parakeet and Qwen3-ASR are optional installs
+    #: (``uv sync --extra parakeet`` / ``--extra qwen3``); neither needs NVIDIA hardware.
+    engine: Literal["whisper", "parakeet", "qwen3"] = "whisper"
+    model: str = "base"  # Whisper model size, for engine = "whisper"
+    #: Parakeet model (an onnx-asr name), for engine = "parakeet".
+    parakeet_model: str = "nemo-parakeet-tdt-0.6b-v3"
+    #: int8 is about 4x smaller and faster on a CPU, with little loss; "none" = full precision.
+    parakeet_quantization: Literal["int8", "none"] = "int8"
+    #: Qwen3-ASR model (a Hugging Face ID), for engine = "qwen3". 0.6B suits a CPU.
+    qwen3_model: str = "Qwen/Qwen3-ASR-0.6B"
+    #: auto = a GPU when the engine's runtime can use one, else the CPU. Parakeet's "auto"
+    #: also uses DirectML (AMD/Intel GPUs) when onnxruntime-directml is installed.
     device: Literal["auto", "cpu", "cuda"] = "auto"
-    #: auto = the fastest type the device supports (int8 on CPU, float16 on CUDA).
+    #: Whisper only. auto = the fastest type the device supports (int8 on CPU, float16 on CUDA).
     #: "default" would keep the model's saved float16, which CPUs convert to slow float32.
     compute_type: Literal[
         "auto",
@@ -100,7 +111,7 @@ class AsrConfig(_Section):
         "bfloat16",
         "float32",
     ] = "auto"
-    beam_size: int = Field(5, ge=1, le=10)
+    beam_size: int = Field(5, ge=1, le=10)  # Whisper only
     language: str | None = None  # force a source language; None = auto-detect then lock
     lock_after: int = Field(2, ge=1, le=10)
     lock_min_probability: float = Field(0.8, ge=0.0, le=1.0)

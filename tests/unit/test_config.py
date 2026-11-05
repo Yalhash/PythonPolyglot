@@ -338,3 +338,15 @@ def test_reply_hotkey_count_is_limited() -> None:
     for bad in (0, 11):
         with pytest.raises(ValidationError):
             UiConfig(reply_hotkeys=bad)
+
+
+def test_speech_engine_defaults_to_whisper_and_validates(tmp_path: Path) -> None:
+    assert AppConfig().asr.engine == "whisper"
+    path = tmp_path / "config.toml"
+    path.write_text('[asr]\nengine = "parakeet"\n', encoding="utf-8")
+    cfg = load_config(path, environ={"POLYGLOT_ASR__QWEN3_MODEL": "Qwen/Qwen3-ASR-1.7B"})
+    assert cfg.asr.engine == "parakeet" and cfg.asr.parakeet_quantization == "int8"
+    assert cfg.asr.qwen3_model == "Qwen/Qwen3-ASR-1.7B"  # env override
+    path.write_text('[asr]\nengine = "deepspeech"\n', encoding="utf-8")
+    with pytest.raises(ConfigError):
+        load_config(path, environ={})

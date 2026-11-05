@@ -148,13 +148,29 @@ def build_vad(cfg: AppConfig, warnings: list[str]) -> VoiceActivityModel:
 
 
 def build_transcriber(cfg: AppConfig) -> Transcriber:
+    """The configured local speech recognizer. Each engine's package is imported only
+    when its model loads, so an engine that is not installed fails there, with a
+    ConfigError naming the install command."""
+    a = cfg.asr
+    if a.engine == "parakeet":
+        from polyglot.adapters.asr.parakeet import ParakeetTranscriber
+
+        return ParakeetTranscriber(
+            a.parakeet_model,
+            device=a.device,
+            quantization=None if a.parakeet_quantization == "none" else a.parakeet_quantization,
+        )
+    if a.engine == "qwen3":
+        from polyglot.adapters.asr.qwen3 import Qwen3Transcriber
+
+        return Qwen3Transcriber(a.qwen3_model, device=a.device)
     from polyglot.adapters.asr.faster_whisper import FasterWhisperTranscriber
 
     return FasterWhisperTranscriber(
-        cfg.asr.model,
-        device=cfg.asr.device,
-        compute_type=cfg.asr.compute_type,
-        beam_size=cfg.asr.beam_size,
+        a.model,
+        device=a.device,
+        compute_type=a.compute_type,
+        beam_size=a.beam_size,
     )
 
 
