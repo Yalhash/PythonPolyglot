@@ -503,12 +503,29 @@ def test_model_load_failure_stops_capture_and_keeps_error(
     )
     p.start()
     assert wait_for(lambda: not p.running, 5), "capture should stop when the model cannot load"
-    assert wait_for(lambda: recorder.of(PipelineStatus)[-1].state is PipelineState.STOPPED, 5)
+    time.sleep(0.3)  # let the background stop finish posting
     states = [s.state for s in recorder.of(PipelineStatus)]
     assert PipelineState.ERROR in states
     assert PipelineState.FALLING_BEHIND not in states[states.index(PipelineState.ERROR) :]
+    # The error is the last word: stopping must not replace it with a bare "Stopped",
+    # or it only flashes on screen.
+    last = recorder.of(PipelineStatus)[-1]
+    assert last.state is PipelineState.ERROR and "no model" in last.detail
+    assert p.state is PipelineState.ERROR
     # nothing left "listening" forever
     assert all(u.status is not UtteranceStatus.LISTENING for u in recorder.utterances().values())
+
+
+def test_the_next_start_clears_a_kept_error(make_pipeline: Any, recorder: Recorder) -> None:
+    asr = ScriptedTranscriber(load_error=TranscriptionFailed("no model"))
+    p = make_pipeline(utterances_audio(1), transcriber=asr)
+    p.start()
+    assert wait_for(lambda: not p.running and p.state is PipelineState.ERROR, 5)
+    asr._load_error = None  # e.g. the missing package was installed
+    p.start()
+    assert wait_for(lambda: p.state is PipelineState.LISTENING, 5)
+    p.stop()
+    assert wait_for(lambda: recorder.of(PipelineStatus)[-1].state is PipelineState.STOPPED)
 
 
 def test_model_loaded_after_stop_does_not_claim_listening(

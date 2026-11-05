@@ -947,7 +947,10 @@ class Pipeline:
     def _stop_in_background(self) -> None:
         # Called on the coordinator thread; stop() drains the coordinator, so it must
         # not run there.
-        threading.Thread(target=self.stop, name="polyglot-fatal-stop", daemon=True).start()
+        # The error stays on screen: the stop must not replace it with "Stopped".
+        threading.Thread(
+            target=self.stop, kwargs={"keep_error": True}, name="polyglot-fatal-stop", daemon=True
+        ).start()
 
     def _asr_depth(self) -> int:
         q = self._asr_queue
@@ -1061,8 +1064,12 @@ class Pipeline:
                     self._stop_user_frontend(flush=False)
                     coord.post(_SourceError(exc, Speaker.USER))
 
-    def stop(self, timeout: float = 10.0) -> None:
-        """Stop listening. The utterance in progress is finished and transcribed."""
+    def stop(self, timeout: float = 10.0, *, keep_error: bool = False) -> None:
+        """Stop listening. The utterance in progress is finished and transcribed.
+
+        ``keep_error`` is for stopping because of a fatal error (the model cannot load):
+        the status stays ERROR, with its message, instead of becoming STOPPED. ERROR is
+        not a listening state, so the UI still offers Start; the next start clears it."""
         with self._lock:
             if not self._running:
                 return
@@ -1078,7 +1085,8 @@ class Pipeline:
                     log.exception("microphone failed to stop cleanly")
             self._teardown(flush=True, timeout=timeout)
             self._coord.post(_Command("abandon_open"))
-            self._coord.post(_Command("status", (PipelineState.STOPPED, "")))
+            if not keep_error:
+                self._coord.post(_Command("status", (PipelineState.STOPPED, "")))
             # When stop() returns, the last utterance's transcript has been applied.
             self._coord.drain(timeout=2.0)
 
