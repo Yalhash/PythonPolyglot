@@ -34,10 +34,16 @@ On first real run Whisper downloads its model (`base` is about 150 MB).
 | Action | Default |
 | --- | --- |
 | Suggest replies to the last sentence | `Ctrl+Alt+S` |
+| Suggest replies to one of their recent sentences | `Ctrl+Alt+1` (newest) … `Ctrl+Alt+4` |
 | Show / hide the window | `Ctrl+Alt+H` |
 | Lock / unlock following the latest sentence | `Ctrl+Alt+L` |
 
 Inside the window: `Ctrl+Enter` suggests, `Esc` hides. Click a suggestion to copy it.
+
+Each of the other person's finished sentences that a numbered hotkey can reach is outlined
+in orange, with its hotkey in the top-right corner: `1` is the newest, `2` the one before,
+and so on. Settings → Window sets how many sentences get one (1 to 10, following the
+number row: `1`–`9`, then `0`) and which keys are held with the number.
 
 The transcript follows the newest sentence (🔒, next to Suggest). Scrolling by hand
 unlocks it (🔓) so the view stays where you are reading; it follows again only when you

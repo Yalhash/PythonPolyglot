@@ -738,17 +738,20 @@ class Coordinator:
         log.info("utt=%d translated translate_ms=%.0f", msg.uid, msg.ms)
 
     # ------------------------------------------------------------------ suggestions
-    def _request_suggestion(self) -> None:
+    def _request_suggestion(self, utterance_id: int | None = None) -> None:
         if self._suggester is None:
             self._bus.publish(
                 StageError("suggest", ErrorKind.NOT_CONFIGURED, "suggestions are not enabled")
             )
             return
-        target = self.session.latest_answerable()
+        if utterance_id is None:
+            target = self.session.latest_answerable()
+            missing = "nothing has been said yet"
+        else:
+            target = self.session.answerable(utterance_id)
+            missing = f"utterance {utterance_id} is not something to reply to"
         if target is None:
-            self._bus.publish(
-                StageError("suggest", ErrorKind.NOTHING_TO_ANSWER, "nothing has been said yet")
-            )
+            self._bus.publish(StageError("suggest", ErrorKind.NOTHING_TO_ANSWER, missing))
             return
         self._suggest_gen += 1
         gen = self._suggest_gen
@@ -781,7 +784,7 @@ class Coordinator:
     # ------------------------------------------------------------------ commands
     def _on_command(self, cmd: _Command) -> None:
         if cmd.name == "suggest":
-            self._request_suggestion()
+            self._request_suggestion(cmd.arg)
         elif cmd.name == "set_language":
             self.session.set_language(cmd.arg)
             self._bus.publish(LanguageChanged(cmd.arg, locked=cmd.arg is not None))
@@ -1126,9 +1129,10 @@ class Pipeline:
         return False
 
     # ------------------------------------------------------------------ commands
-    def request_suggestion(self) -> None:
-        """Ask for replies to the latest final utterance (bound to the suggest hotkey)."""
-        self._coord.post(_Command("suggest"))
+    def request_suggestion(self, utterance_id: int | None = None) -> None:
+        """Ask for replies to one of the other person's sentences: the latest by default
+        (the suggest hotkey), or a given one (the numbered reply hotkeys)."""
+        self._coord.post(_Command("suggest", utterance_id))
 
     def set_language(self, language: str | None) -> None:
         """Force the source language, or ``None`` to unlock and auto-detect again."""

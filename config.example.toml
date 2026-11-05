@@ -71,6 +71,8 @@ hide_from_capture = true
 hotkey_suggest = "<ctrl>+<alt>+s"
 hotkey_toggle = "<ctrl>+<alt>+h"
 hotkey_lock = "<ctrl>+<alt>+l"   # lock/unlock following the latest sentence
+reply_hotkeys = 4                  # their latest N sentences (1-10) get modifiers + 1, 2, ... 0
+reply_hotkey_modifiers = "<ctrl>+<alt>"   # empty turns the numbered reply hotkeys off
 
 [privacy]
 log_content = false

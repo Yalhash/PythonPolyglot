@@ -115,6 +115,16 @@ def test_latest_answerable_ignores_the_users_own_turns() -> None:
     assert s.latest_answerable() is None  # only the user has spoken
 
 
+def test_answerable_checks_a_given_sentence() -> None:
+    s = Session("en")
+    s.put(final(1, "their question"))
+    s.put(final(2, "my answer").evolve(speaker=Speaker.USER))
+    target = s.answerable(1)
+    assert target is not None and target.id == 1
+    assert s.answerable(2) is None  # the user's own turn
+    assert s.answerable(99) is None  # never said, or cleared
+
+
 def test_history_before_includes_the_users_turns() -> None:
     s = Session("en")
     s.put(final(1, "q1"))

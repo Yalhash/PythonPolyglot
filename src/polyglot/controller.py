@@ -97,10 +97,11 @@ class AppController:
         else:
             self.start()
 
-    def request_suggestion(self) -> None:
+    def request_suggestion(self, utterance_id: int | None = None) -> None:
+        """Replies to the latest sentence, or to ``utterance_id`` (a reply hotkey)."""
         built = self.ensure_built()
         if built is not None:
-            built.pipeline.request_suggestion()
+            built.pipeline.request_suggestion(utterance_id)
 
     def set_language(self, language: str | None) -> None:
         built = self.ensure_built()

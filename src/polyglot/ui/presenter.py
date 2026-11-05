@@ -25,6 +25,7 @@ from polyglot.core.events import (
 )
 from polyglot.core.models import ErrorKind, Speaker, Utterance, UtteranceStatus
 from polyglot.core.ports import ShieldStatus
+from polyglot.core.session import is_answerable
 
 ERROR_TEXT: dict[ErrorKind, str] = {
     ErrorKind.TIMEOUT: "timed out",
@@ -51,6 +52,9 @@ class RowVM:
     partial: bool = False
     failed: bool = False
     mine: bool = False  # said by the user (from their microphone), not the other person
+    #: The hotkey that suggests replies to this sentence ("Ctrl+Alt+1"), shown on the
+    #: bubble, which is highlighted while it has one. ``None``: no hotkey reaches it.
+    reply_key: str | None = None
 
 
 @dataclass(frozen=True)
@@ -123,7 +127,7 @@ class NullView:
 
 class Commands(Protocol):
     def toggle(self) -> None: ...
-    def request_suggestion(self) -> None: ...
+    def request_suggestion(self, utterance_id: int | None = None) -> None: ...
     def set_language(self, language: str | None) -> None: ...
     def clear(self) -> None: ...
 
@@ -136,8 +140,15 @@ class Presenter:
     user_language: str = "en"
     translation_enabled: bool = False
     rows: dict[int, Utterance] = field(default_factory=dict)
+    #: Labels of the reply hotkeys, for the newest sentence first ("Ctrl+Alt+1", ...).
+    reply_keys: tuple[str, ...] = ()
     suggestion_for: int | None = None
     _suggestion: SuggestionVM | None = None
+    #: The newest sentence when the shown suggestion was asked for: anything they say
+    #: after it makes the suggestion stale (not merely being older than the latest, since
+    #: a reply hotkey can deliberately answer an earlier sentence).
+    _asked_at: int | None = None
+    _slots: dict[int, str] = field(default_factory=dict)  # utterance ID -> its reply hotkey
     _state: PipelineState = PipelineState.STOPPED
     _cleared_upto: int = 0  # events about utterances <= this belong to a cleared conversation
 
@@ -148,23 +159,30 @@ class Presenter:
         if isinstance(event, ConversationCleared):
             self._cleared_upto = max(self._cleared_upto, event.upto)
             self.rows.clear()
+            self._slots = {}
             self.suggestion_for = None
             self._suggestion = None
+            self._asked_at = None
             self.view.clear_rows()
             self.view.show_suggestions(SuggestionVM(visible=False))
         elif isinstance(event, UtteranceUpdated):
             self._on_utterance(event.utterance)
         elif isinstance(event, UtteranceDiscarded):
             self.rows.pop(event.utterance_id, None)
+            self._slots.pop(event.utterance_id, None)
             self.view.remove_row(event.utterance_id)
+            self._refresh_slots()
         elif isinstance(event, SuggestionStarted):
             self.suggestion_for = event.utterance_id
+            self._asked_at = max(self._latest_final(), event.utterance_id)
             self._show_suggestion(
                 SuggestionVM(reply_to=self._text(event.utterance_id), loading=True)
             )
         elif isinstance(event, SuggestionsReady):
             s = event.suggestion
             self.suggestion_for = s.utterance_id
+            if self._asked_at is None:
+                self._asked_at = s.utterance_id
             if s.error is not None:
                 vm = SuggestionVM(
                     reply_to=self._text(s.utterance_id),
@@ -185,11 +203,36 @@ class Presenter:
 
     def _on_utterance(self, u: Utterance) -> None:
         self.rows[u.id] = u
-        self.view.upsert_row(self.row_vm(u))
-        if self._suggestion is not None and self.suggestion_for is not None:
-            stale = self._latest_final() > self.suggestion_for
+        self._refresh_slots(always=u.id)
+        if self._suggestion is not None and self._asked_at is not None:
+            stale = self._is_stale()
             if stale != self._suggestion.stale:
                 self._show_suggestion(self._suggestion, stale=stale)
+
+    # ------------------------------------------------------------ reply hotkeys
+    def set_reply_keys(self, labels: tuple[str, ...]) -> None:
+        """The reply hotkeys now bound, newest sentence first. Re-labels the bubbles."""
+        self.reply_keys = tuple(labels)
+        self._refresh_slots()
+
+    def reply_targets(self) -> list[int]:
+        """The sentences the reply hotkeys reach, newest first: the other person's latest
+        finished sentences, one per hotkey."""
+        ids = sorted((uid for uid, u in self.rows.items() if is_answerable(u)), reverse=True)
+        return ids[: len(self.reply_keys)]
+
+    def _refresh_slots(self, *, always: int | None = None) -> None:
+        """Give each reachable sentence its hotkey, and redraw the bubbles whose hotkey
+        changed (a new sentence shifts every label down by one), plus ``always``."""
+        new = dict(zip(self.reply_targets(), self.reply_keys, strict=False))  # fewer sentences
+        old, self._slots = self._slots, new
+        changed = {uid for uid in old.keys() | new.keys() if old.get(uid) != new.get(uid)}
+        if always is not None:
+            changed.add(always)
+        for uid in sorted(changed):
+            row = self.rows.get(uid)
+            if row is not None:
+                self.view.upsert_row(self.row_vm(row))
 
     def _on_status(self, event: PipelineStatus) -> None:
         self._state = event.state
@@ -262,6 +305,7 @@ class Presenter:
             partial=u.status is UtteranceStatus.PARTIAL,
             failed=failed,
             mine=u.speaker is Speaker.USER,
+            reply_key=self._slots.get(u.id),
         )
 
     def language_label(self, language: str | None, locked: bool) -> str:
@@ -290,9 +334,12 @@ class Presenter:
         ]
         return max(finals, default=0)
 
+    def _is_stale(self) -> bool:
+        return self._asked_at is not None and self._latest_final() > self._asked_at
+
     def _show_suggestion(self, vm: SuggestionVM, *, stale: bool | None = None) -> None:
         if stale is None:
-            stale = self.suggestion_for is not None and self._latest_final() > self.suggestion_for
+            stale = self._is_stale()
         vm = SuggestionVM(vm.reply_to, vm.options, vm.loading, vm.message, stale, True)
         self._suggestion = vm
         self.view.show_suggestions(vm)
@@ -303,6 +350,15 @@ class Presenter:
 
     def on_suggest(self) -> None:
         self.commands.request_suggestion()
+
+    def on_suggest_slot(self, index: int) -> None:
+        """A reply hotkey: 0 is the newest of their sentences, 1 the one before, ..."""
+        targets = self.reply_targets()
+        if 0 <= index < len(targets):
+            self.commands.request_suggestion(targets[index])
+            return
+        key = self.reply_keys[index] if 0 <= index < len(self.reply_keys) else str(index + 1)
+        self._show_suggestion(SuggestionVM(message=f"Nothing to reply to with {key} yet."))
 
     def on_clear(self) -> None:
         # The view clears when the core confirms (ConversationCleared), so results

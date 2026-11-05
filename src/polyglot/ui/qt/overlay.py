@@ -66,13 +66,17 @@ def _repolish(widget: QWidget) -> None:
 
 
 class RowWidget(QFrame):
-    """One utterance: original, translation underneath, and a note."""
+    """One utterance: original, translation underneath, and a note. A sentence a reply
+    hotkey reaches is outlined and shows that hotkey in its top-right corner."""
 
     def __init__(self) -> None:
         super().__init__()
         self.setObjectName("Row")
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 6, 10, 6)
+        outer = QHBoxLayout(self)
+        outer.setContentsMargins(10, 6, 6, 6)
+        outer.setSpacing(6)
+        layout = QVBoxLayout()
+        layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(2)
         self.who = _label("You", "Who", selectable=False)
         self.original = _label(name="Original")
@@ -81,6 +85,11 @@ class RowWidget(QFrame):
         for w in (self.who, self.original, self.translation, self.note):
             layout.addWidget(w)
         self.who.setVisible(False)
+        self.reply_key = _label("", "ReplyKey", wrap=False, selectable=False)
+        self.reply_key.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        self.reply_key.setVisible(False)
+        outer.addLayout(layout, 1)
+        outer.addWidget(self.reply_key, 0, Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignRight)
 
     def apply(self, vm: RowVM) -> None:
         self.original.setText(vm.original or "…")
@@ -91,7 +100,13 @@ class RowWidget(QFrame):
         self.setProperty("partial", vm.partial)
         self.setProperty("failed", vm.failed)
         self.setProperty("mine", vm.mine)
+        self.setProperty("answerable", vm.reply_key is not None)
         self.who.setVisible(vm.mine)
+        self.reply_key.setText(vm.reply_key or "")
+        self.reply_key.setVisible(vm.reply_key is not None)
+        self.reply_key.setToolTip(
+            f"Press {vm.reply_key} to suggest replies to this sentence" if vm.reply_key else ""
+        )
         _repolish(self)
 
 

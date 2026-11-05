@@ -279,6 +279,31 @@ def test_suggestion_failure_is_reported_not_replaced(
     assert s.options == () and s.error is ErrorKind.AUTH
 
 
+def test_suggestion_for_an_earlier_sentence(make_pipeline: Any, recorder: Recorder) -> None:
+    sug = CannedSuggester()
+    p = make_pipeline(
+        utterances_audio(3), transcriber=ScriptedTranscriber(TEXTS[:3]), suggester=sug
+    )
+    run_to_end(p)
+    p.request_suggestion(2)
+    assert wait_for(lambda: recorder.of(SuggestionsReady))
+    assert recorder.of(SuggestionsReady)[0].suggestion.utterance_id == 2
+    ctx = sug.contexts[0]
+    assert ctx.target.text == "dos"
+    assert [u.text for u in ctx.history] == ["uno"]
+
+
+def test_suggestion_for_a_sentence_that_is_gone(make_pipeline: Any, recorder: Recorder) -> None:
+    p = make_pipeline(
+        utterances_audio(1), transcriber=ScriptedTranscriber(TEXTS[:1]), suggester=CannedSuggester()
+    )
+    run_to_end(p)
+    p.request_suggestion(42)
+    assert wait_for(lambda: recorder.of(StageError))
+    assert recorder.of(StageError)[0].kind is ErrorKind.NOTHING_TO_ANSWER
+    assert recorder.of(SuggestionStarted) == []
+
+
 def test_clear_ignores_late_results(make_pipeline: Any, recorder: Recorder) -> None:
     tr = EchoTranslator(delays={"uno": 0.4})
     p = make_pipeline(utterances_audio(1), transcriber=ScriptedTranscriber(["uno"]), translator=tr)

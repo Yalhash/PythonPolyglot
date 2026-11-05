@@ -13,7 +13,14 @@ from polyglot.core.events import (
     UtteranceDiscarded,
     UtteranceUpdated,
 )
-from polyglot.core.models import ErrorKind, ReplyOption, Suggestion, Utterance, UtteranceStatus
+from polyglot.core.models import (
+    ErrorKind,
+    ReplyOption,
+    Speaker,
+    Suggestion,
+    Utterance,
+    UtteranceStatus,
+)
 from polyglot.core.ports import ShieldStatus
 from polyglot.ui.presenter import Presenter, RowVM, StatusVM, SuggestionVM
 
@@ -191,6 +198,83 @@ def test_the_users_own_lines_are_marked_and_never_translating() -> None:
     p.handle(u(2, UtteranceStatus.FINAL, "buenos dias", source_lang="es", speaker=Speaker.USER))
     assert view.rows[1].note == "translating…" and not view.rows[1].mine
     assert view.rows[2].mine and view.rows[2].note is None  # no translation will come
+
+
+def keyed(n: int = 4) -> tuple[Presenter, FakeView, FakeCommands]:
+    p, view, cmds = make()
+    p.set_reply_keys(tuple(f"Ctrl+Alt+{d}" for d in "1234567890"[:n]))
+    return p, view, cmds
+
+
+def test_their_finished_sentences_get_reply_hotkeys_newest_first() -> None:
+    p, view, _ = keyed(2)
+    p.handle(u(1, UtteranceStatus.FINAL, "uno", source_lang="es"))
+    assert view.rows[1].reply_key == "Ctrl+Alt+1"
+    p.handle(u(2, UtteranceStatus.LISTENING))
+    assert view.rows[2].reply_key is None  # not ready yet: no hotkey, no highlight
+    p.handle(u(2, UtteranceStatus.FINAL, "dos", source_lang="es"))
+    assert view.rows[2].reply_key == "Ctrl+Alt+1"
+    assert view.rows[1].reply_key == "Ctrl+Alt+2"  # shifted down by the newer sentence
+    p.handle(u(3, UtteranceStatus.FINAL, "tres", source_lang="es"))
+    assert [view.rows[i].reply_key for i in (3, 2, 1)] == ["Ctrl+Alt+1", "Ctrl+Alt+2", None]
+
+
+def test_mine_and_failed_sentences_get_no_reply_hotkey() -> None:
+    p, view, _ = keyed()
+    p.handle(u(1, UtteranceStatus.FINAL, "uno", source_lang="es"))
+    p.handle(u(2, UtteranceStatus.FINAL, "my answer", speaker=Speaker.USER))
+    p.handle(u(3, UtteranceStatus.FAILED, "", error=ErrorKind.TRANSCRIPTION))
+    assert view.rows[1].reply_key == "Ctrl+Alt+1"
+    assert view.rows[2].reply_key is None and view.rows[3].reply_key is None
+
+
+def test_discarding_a_sentence_moves_the_hotkeys_up() -> None:
+    p, view, _ = keyed()
+    p.handle(u(1, UtteranceStatus.FINAL, "uno"))
+    p.handle(u(2, UtteranceStatus.FINAL, "dos"))
+    p.handle(UtteranceDiscarded(2))
+    assert view.rows[1].reply_key == "Ctrl+Alt+1"
+
+
+def test_no_hotkeys_bound_means_no_highlight() -> None:
+    p, view, _ = make()
+    p.handle(u(1, UtteranceStatus.FINAL, "uno"))
+    assert view.rows[1].reply_key is None
+    p.set_reply_keys(("Ctrl+Alt+1",))  # bound later (settings saved): labels appear
+    assert view.rows[1].reply_key == "Ctrl+Alt+1"
+    p.set_reply_keys(())
+    assert view.rows[1].reply_key is None
+
+
+def test_reply_hotkey_asks_for_that_sentence() -> None:
+    p, view, cmds = keyed()
+    for i, text in enumerate(["uno", "dos", "tres"], 1):
+        p.handle(u(i, UtteranceStatus.FINAL, text))
+    p.on_suggest_slot(0)
+    p.on_suggest_slot(2)
+    assert cmds.calls == [("request_suggestion", (3,)), ("request_suggestion", (1,))]
+    p.on_suggest_slot(3)  # Ctrl+Alt+4: nothing that old yet
+    assert len(cmds.calls) == 2
+    assert view.suggestion and view.suggestion.message == "Nothing to reply to with Ctrl+Alt+4 yet."
+
+
+def test_answering_an_older_sentence_is_not_stale_until_they_say_more() -> None:
+    p, view, _ = keyed()
+    p.handle(u(1, UtteranceStatus.FINAL, "uno"))
+    p.handle(u(2, UtteranceStatus.FINAL, "dos"))
+    p.handle(SuggestionStarted(1))
+    p.handle(SuggestionsReady(Suggestion(1, (ReplyOption("a", "b"),))))
+    assert view.suggestion and view.suggestion.reply_to == "uno" and not view.suggestion.stale
+    p.handle(u(3, UtteranceStatus.FINAL, "tres"))
+    assert view.suggestion.stale
+
+
+def test_clear_drops_the_reply_hotkeys() -> None:
+    p, view, _ = keyed()
+    p.handle(u(1, UtteranceStatus.FINAL, "uno"))
+    p.handle(ConversationCleared(1))
+    p.handle(u(2, UtteranceStatus.FINAL, "dos"))
+    assert view.rows[2].reply_key == "Ctrl+Alt+1"
 
 
 def test_only_their_sentences_make_a_suggestion_stale() -> None:

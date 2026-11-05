@@ -227,6 +227,28 @@ class UiConfig(_Section):
     hotkey_suggest: str = "<ctrl>+<alt>+s"
     hotkey_toggle: str = "<ctrl>+<alt>+h"
     hotkey_lock: str = "<ctrl>+<alt>+l"  # lock/unlock following the latest sentence
+    #: How many of the other person's latest sentences get a reply hotkey of their own:
+    #: modifiers + 1 for the newest, + 2 for the one before, ... + 0 for the tenth.
+    reply_hotkeys: int = Field(4, ge=1, le=10)
+    #: The keys held with the digit for those hotkeys. Empty turns them off.
+    reply_hotkey_modifiers: str = "<ctrl>+<alt>"
+
+    def reply_hotkey_combos(self) -> tuple[str, ...]:
+        """The reply hotkeys, newest sentence first, in number-row order (1-9, then 0)."""
+        mods = self.reply_hotkey_modifiers.strip().strip("+")
+        if not mods:
+            return ()
+        return tuple(f"{mods}+{d}" for d in REPLY_DIGITS[: self.reply_hotkeys])
+
+
+#: The number row, left to right: the order of the reply hotkeys.
+REPLY_DIGITS = "1234567890"
+
+
+def hotkey_label(combo: str) -> str:
+    """``"<ctrl>+<alt>+1"`` -> ``"Ctrl+Alt+1"``: how a hotkey is shown to the user."""
+    parts = [p.strip().strip("<>") for p in combo.split("+") if p.strip()]
+    return "+".join(p.upper() if len(p) == 1 else p.capitalize() for p in parts)
 
 
 class PrivacyConfig(_Section):

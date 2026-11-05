@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from polyglot.config import AppConfig, ConfigStore, Secrets
+from polyglot.config import AppConfig, ConfigStore, Secrets, UiConfig, hotkey_label
 from polyglot.controller import PIPELINE_SECTIONS, AppController
 from polyglot.core.errors import ConfigError
 from polyglot.core.events import EventBus
@@ -115,9 +115,17 @@ def run_gui(config_path: Path | None, *, demo: bool = False) -> int:
 
     hotkeys = GlobalHotkeys()
     hotkeys.suggest.connect(presenter.on_suggest)
+    hotkeys.suggest_slot.connect(presenter.on_suggest_slot)
     hotkeys.toggle_window.connect(window.toggle_visible)
     hotkeys.toggle_lock.connect(window.toggle_lock)
-    hotkeys.bind(config.ui.hotkey_suggest, config.ui.hotkey_toggle, config.ui.hotkey_lock)
+
+    def bind_hotkeys(ui: UiConfig) -> None:
+        slots = ui.reply_hotkey_combos()
+        bound = hotkeys.bind(ui.hotkey_suggest, ui.hotkey_toggle, ui.hotkey_lock, slots)
+        # Only label the bubbles with hotkeys that actually work.
+        presenter.set_reply_keys(tuple(hotkey_label(c) for c in slots) if bound else ())
+
+    bind_hotkeys(config.ui)
 
     model_catalog = OpenAIModelCatalog()  # caches the account's model list per session
     mic_tester = SoundDeviceMicTester()
@@ -143,7 +151,7 @@ def run_gui(config_path: Path | None, *, demo: bool = False) -> int:
             refresh_flags()
             presenter.on_user_language(new.translation.target_language)
             window.setWindowOpacity(new.ui.opacity)
-            hotkeys.bind(new.ui.hotkey_suggest, new.ui.hotkey_toggle, new.ui.hotkey_lock)
+            bind_hotkeys(new.ui)
             if new.ui.hide_from_capture and shield_filter is None:
                 shield_filter = CaptureShieldFilter(platform.window_shield())
                 shield_filter.status_changed.connect(presenter.on_shield_status)

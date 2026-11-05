@@ -484,6 +484,30 @@ def test_the_users_own_lines_are_labelled_and_styled(window: Any) -> None:
     assert theirs.property("mine") is False
 
 
+def test_a_sentence_with_a_reply_hotkey_is_highlighted_and_shows_it(window: Any) -> None:
+    window.upsert_row(RowVM(1, "¿Qué opina?", reply_key="Ctrl+Alt+1"))
+    window.upsert_row(RowVM(2, "hola"))
+    keyed, plain = window._rows[1], window._rows[2]
+    assert keyed.property("answerable") is True and not keyed.reply_key.isHidden()
+    assert keyed.reply_key.text() == "Ctrl+Alt+1"
+    assert plain.property("answerable") is False and plain.reply_key.isHidden()
+    window.upsert_row(RowVM(1, "¿Qué opina?"))  # its hotkey moved to a newer sentence
+    assert keyed.property("answerable") is False and keyed.reply_key.isHidden()
+
+
+def test_settings_dialog_saves_the_reply_hotkeys(qtbot: Any) -> None:
+    from polyglot.ui.qt.settings_dialog import SettingsDialog
+
+    dialog = SettingsDialog(AppConfig(), Secrets(MemorySecretStore(), environ={}), lambda: [])
+    qtbot.addWidget(dialog)
+    dialog.reply_hotkeys.setValue(10)
+    dialog.reply_modifiers.setText("<ctrl>+<shift>")
+    dialog._save()
+    assert dialog.result_config is not None
+    ui = dialog.result_config.ui
+    assert ui.reply_hotkeys == 10 and ui.reply_hotkey_combos()[-1] == "<ctrl>+<shift>+0"
+
+
 def test_settings_dialog_saves_the_microphone_choice(qtbot: Any) -> None:
     from polyglot.ui.qt.settings_dialog import SettingsDialog
 
