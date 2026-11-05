@@ -11,6 +11,18 @@ from dataclasses import dataclass
 from polyglot.core.models import Speaker, Utterance, UtteranceStatus
 
 
+def is_answerable(u: Utterance) -> bool:
+    """Something to reply to: a finished sentence with text, said by the other person.
+    The user's own turns and failed transcripts never are. The presenter uses the same
+    rule to decide which sentences get a reply hotkey."""
+    return (
+        u.speaker is Speaker.OTHER
+        and u.is_final
+        and bool(u.text)
+        and u.status is not UtteranceStatus.FAILED
+    )
+
+
 @dataclass(frozen=True)
 class LanguagePolicy:
     """Lock the source language once ``agree`` consecutive finals agree confidently."""
@@ -53,14 +65,14 @@ class Session:
         """The most recent final utterance by the other person that has text (failed ones
         are skipped). The user's own turns are never something to reply to."""
         for u in reversed(self.ordered()):
-            if (
-                u.speaker is Speaker.OTHER
-                and u.is_final
-                and u.text
-                and u.status is not UtteranceStatus.FAILED
-            ):
+            if is_answerable(u):
                 return u
         return None
+
+    def answerable(self, utterance_id: int) -> Utterance | None:
+        """That utterance, if it is one replies can be suggested for; otherwise ``None``."""
+        u = self.utterances.get(utterance_id)
+        return u if u is not None and is_answerable(u) else None
 
     def ordered(self) -> list[Utterance]:
         return [self.utterances[k] for k in sorted(self.utterances)]

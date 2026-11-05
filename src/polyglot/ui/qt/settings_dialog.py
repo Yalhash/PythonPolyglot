@@ -528,11 +528,23 @@ class SettingsDialog(QDialog):
         self.hotkey_suggest = QLineEdit(u.hotkey_suggest)
         self.hotkey_toggle = QLineEdit(u.hotkey_toggle)
         self.hotkey_lock = QLineEdit(u.hotkey_lock)
+        self.reply_hotkeys = _spin(1, 10, u.reply_hotkeys)
+        self.reply_hotkeys.setToolTip(
+            "How many of their latest sentences get a numbered hotkey: 1 for the newest, "
+            "2 for the one before, ... 0 for the tenth."
+        )
+        self.reply_modifiers = QLineEdit(u.reply_hotkey_modifiers)
+        self.reply_modifiers.setPlaceholderText("off")
+        self.reply_modifiers.setToolTip(
+            "Keys held with the number, e.g. <ctrl>+<alt>. Leave empty to turn them off."
+        )
         form.addRow("Opacity", self.opacity)
         form.addRow("", self.hide_capture)
         form.addRow("Suggest hotkey", self.hotkey_suggest)
         form.addRow("Show/hide hotkey", self.hotkey_toggle)
         form.addRow("Lock scrolling hotkey", self.hotkey_lock)
+        form.addRow("Reply hotkeys (sentences)", self.reply_hotkeys)
+        form.addRow("Reply hotkey keys", self.reply_modifiers)
         return w
 
     # ------------------------------------------------------------ save
@@ -573,7 +585,9 @@ class SettingsDialog(QDialog):
         c["ui"].update(opacity=self.opacity.value(), hide_from_capture=self.hide_capture.isChecked(),
                        hotkey_suggest=self.hotkey_suggest.text().strip(),
                        hotkey_toggle=self.hotkey_toggle.text().strip(),
-                       hotkey_lock=self.hotkey_lock.text().strip())  # fmt: skip
+                       hotkey_lock=self.hotkey_lock.text().strip(),
+                       reply_hotkeys=self.reply_hotkeys.value(),
+                       reply_hotkey_modifiers=self.reply_modifiers.text().strip())  # fmt: skip
         c["privacy"].update(dump_audio=self.dump_audio.isChecked())
         try:
             new = AppConfig.model_validate(c)

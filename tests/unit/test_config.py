@@ -313,3 +313,28 @@ def test_other_saved_models_are_kept() -> None:
         {"translation": {"model": "gpt-4o"}, "suggestions": {"model": "gpt-6.1-sol"}}
     )
     assert cfg.translation.model == "gpt-4o" and cfg.suggestions.model == "gpt-6.1-sol"
+
+
+def test_reply_hotkeys_follow_the_number_row() -> None:
+    from polyglot.config import UiConfig, hotkey_label
+
+    assert UiConfig().reply_hotkey_combos() == tuple(f"<ctrl>+<alt>+{d}" for d in "1234")
+    ten = UiConfig(reply_hotkeys=10).reply_hotkey_combos()
+    assert [c[-1] for c in ten] == list("1234567890")
+    assert UiConfig(reply_hotkeys=1, reply_hotkey_modifiers="<shift>+").reply_hotkey_combos() == (
+        "<shift>+1",
+    )
+    assert UiConfig(reply_hotkey_modifiers="").reply_hotkey_combos() == ()
+    assert hotkey_label("<ctrl>+<alt>+0") == "Ctrl+Alt+0"
+    assert hotkey_label("<ctrl>+<alt>+s") == "Ctrl+Alt+S"
+
+
+def test_reply_hotkey_count_is_limited() -> None:
+    import pytest
+    from pydantic import ValidationError
+
+    from polyglot.config import UiConfig
+
+    for bad in (0, 11):
+        with pytest.raises(ValidationError):
+            UiConfig(reply_hotkeys=bad)

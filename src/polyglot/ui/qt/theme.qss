@@ -37,6 +37,11 @@
 #Row[partial="true"] #Original { color: #9aa0aa; font-style: italic; }
 #Row[failed="true"] { border: 1px solid #6b2e28; }
 #Row[mine="true"] { background: #1c2736; }
+#Row[answerable="true"] { background: #2a2219; border: 1px solid #e8892b; }
+#ReplyKey {
+    background: #e8892b; color: #16181d; font-size: 8pt; font-weight: 700;
+    border-radius: 3px; padding: 0px 4px;
+}
 #Who { color: #6aa9ff; font-size: 8.5pt; font-weight: 600; }
 #Original { color: #e8e8ea; }
 #Translation { color: #8fc1ff; }
