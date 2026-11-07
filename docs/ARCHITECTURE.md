@@ -35,6 +35,7 @@ src/polyglot/
   controller.py        pipeline lifecycle; applies settings; rebuilds keeping the conversation
   config.py            AppConfig (pydantic), TOML load/save, env overrides, Secrets
   logging_setup.py     rotating file + stderr; no transcript text by default
+  selfcheck.py         --self-check: loads every native dependency (used on packaged builds)
   core/
     models.py          Utterance, Speaker, SpeechSegment, Transcript, Suggestion, ReplyOption, IdSource
     errors.py          ProviderTimeout, ProviderUnavailable, QuotaExceeded, AuthError, ...

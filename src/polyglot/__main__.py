@@ -19,6 +19,13 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--file", type=Path, help="headless: transcribe this WAV file")
     p.add_argument("--fast", action="store_true", help="headless --file: do not pace in real time")
     p.add_argument("--list-devices", action="store_true", help="list audio input devices")
+    p.add_argument(
+        "--self-check",
+        nargs="?",
+        const="-",
+        metavar="REPORT",
+        help="check that every native dependency loads; write the report to REPORT or stdout",
+    )
     p.add_argument("--log-level", default="INFO")
     p.add_argument("--version", action="version", version=f"polyglot {__version__}")
     return p
@@ -123,6 +130,10 @@ def run_headless(config_path: Path | None, wav: Path | None, *, demo: bool, fast
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    if args.self_check is not None:
+        from polyglot import selfcheck
+
+        return selfcheck.run(None if args.self_check == "-" else Path(args.self_check))
     from polyglot import config, logging_setup
 
     logging_setup.configure(
