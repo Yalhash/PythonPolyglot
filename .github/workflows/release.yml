@@ -5,11 +5,20 @@ name: Release
 # the zips on the GitHub Releases page.
 #
 #   git tag v1.0.0 && git push origin v1.0.0     -> builds and creates the release
+#   push packaging changes to a branch           -> builds only (download from the run)
 #   Actions -> Release -> Run workflow           -> builds only (download from the run)
 
 on:
   push:
     tags: ["v*"]
+    # Any branch that changes the packaging builds and self-checks (no release).
+    branches: ["**"]
+    paths:
+      - "packaging/**"
+      - ".github/workflows/release.yml"
+      - "src/polyglot/selfcheck.py"
+      - "pyproject.toml"
+      - "uv.lock"
   workflow_dispatch:
 
 permissions:

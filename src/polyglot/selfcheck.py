@@ -20,7 +20,7 @@ from polyglot import __version__
 def _numpy() -> str:
     import numpy
 
-    return numpy.__version__
+    return str(numpy.__version__)
 
 
 def _soxr() -> str:
@@ -60,13 +60,13 @@ def _faster_whisper() -> str:
 def _huggingface_hub() -> str:
     import huggingface_hub
 
-    return huggingface_hub.__version__
+    return str(huggingface_hub.__version__)
 
 
 def _sounddevice() -> str:
     import sounddevice
 
-    return sounddevice.get_portaudio_version()[1]
+    return str(sounddevice.get_portaudio_version()[1])
 
 
 def _loopback() -> str:
@@ -103,13 +103,13 @@ def _keyring() -> str:
 def _hotkeys() -> str:
     from pynput import keyboard
 
-    return keyboard.Listener.__module__
+    return str(keyboard.Listener.__module__)
 
 
 def _parakeet() -> str:
     import onnx_asr
 
-    return getattr(onnx_asr, "__version__", "installed")
+    return str(getattr(onnx_asr, "__version__", "installed"))
 
 
 def _qwen3() -> str:
