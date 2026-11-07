@@ -1,0 +1,111 @@
+name: Release
+
+# Builds the desktop app with PyInstaller on Windows and macOS, checks that the packaged
+# app can load every native dependency (--self-check), and, for a version tag, publishes
+# the zips on the GitHub Releases page.
+#
+#   git tag v1.0.0 && git push origin v1.0.0     -> builds and creates the release
+#   push packaging changes to a branch           -> builds only (download from the run)
+#   Actions -> Release -> Run workflow           -> builds only (download from the run)
+
+on:
+  push:
+    tags: ["v*"]
+    # Any branch that changes the packaging builds and self-checks (no release).
+    branches: ["**"]
+    paths:
+      - "packaging/**"
+      - ".github/workflows/release.yml"
+      - "src/polyglot/selfcheck.py"
+      - "pyproject.toml"
+      - "uv.lock"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: windows-x64
+            os: windows-latest
+          - name: macos-arm64
+            os: macos-latest
+    runs-on: ${{ matrix.os }}
+    env:
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install the app (locked) and PyInstaller
+        shell: bash
+        run: |
+          uv sync --locked --no-dev --extra parakeet
+          uv pip install "pyinstaller>=6.11"
+
+      - name: Build
+        shell: bash
+        run: uv run --no-sync pyinstaller --noconfirm --clean packaging/polyglot.spec
+
+      - name: Self-check the packaged app
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            exe=dist/Polyglot/Polyglot.exe
+          else
+            exe=dist/Polyglot.app/Contents/MacOS/Polyglot
+          fi
+          status=0
+          "$exe" --self-check self-check.txt || status=$?
+          cat self-check.txt || echo "no report written"
+          exit $status
+
+      - name: Zip
+        id: zip
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME}"
+          if [ "$GITHUB_REF_TYPE" != "tag" ]; then version="dev-${GITHUB_SHA::7}"; fi
+          zip="Polyglot-${version}-${{ matrix.name }}.zip"
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            7z a -tzip "$zip" ./dist/Polyglot > /dev/null
+          else
+            # ditto keeps the app bundle's symlinks and signature intact.
+            ditto -c -k --keepParent dist/Polyglot.app "$zip"
+          fi
+          ls -lh "$zip"
+          echo "zip=$zip" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.name }}
+          path: ${{ steps.zip.outputs.zip }}
+          if-no-files-found: error
+
+  release:
+    name: Publish release
+    if: github.ref_type == 'tag'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/*.zip \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Polyglot $GITHUB_REF_NAME" \
+            --generate-notes
