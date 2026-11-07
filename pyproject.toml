@@ -1,6 +1,6 @@
 [project]
 name = "polyglot"
-version = "1.0.0.dev0"
+version = "1.0.0"
 description = "Live transcription, translation and reply suggestions in a small always-on-top window."
 readme = "README.md"
 license = "MIT"
